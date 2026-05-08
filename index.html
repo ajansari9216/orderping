@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>OrderPing</title>
+    <!-- Lucide Icons via unpkg -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app" class="app-container">
+      <!-- TOP BAR -->
+      <header class="top-bar">
+        <h1 class="logo">
+          <i data-lucide="zap" class="logo-icon"></i> OrderPing
+        </h1>
+        <div class="header-actions">
+          <button id="searchToggleBtn" class="icon-btn" aria-label="Search">
+            <i data-lucide="search"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- SEARCH OVERLAY -->
+      <div id="search-overlay" class="search-overlay hidden">
+        <div class="search-bar-container">
+          <i data-lucide="search" class="search-icon"></i>
+          <input type="text" id="globalSearchInput" placeholder="Search orders by name..." autocomplete="off" />
+          <button id="closeSearchBtn" class="icon-btn">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div id="searchResults" class="search-results"></div>
+      </div>
+
+      <main id="main-content">
+        <!-- HOME (BULK ORDERS) -->
+        <section id="view-home" class="view active">
+          <!-- Sticky Upload Area -->
+          <div class="upload-area card" id="uploadArea">
+            <input type="file" id="fileInput" accept=".csv, .xlsx, .xls, .pdf" hidden />
+            <div class="upload-content">
+              <i data-lucide="upload-cloud" class="upload-icon"></i>
+              <div>
+                <p class="upload-title">Upload Excel, CSV or PDF</p>
+                <p class="upload-subtitle">Auto-extract orders instantly</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Filters -->
+          <div class="filters-container">
+            <button class="filter-btn active" data-filter="all">All</button>
+            <button class="filter-btn" data-filter="pending">Pending</button>
+            <button class="filter-btn" data-filter="confirmed">Confirmed</button>
+          </div>
+
+          <!-- Bulk Orders List -->
+          <div id="bulkOrdersList" class="orders-list">
+            <!-- Populated via JS -->
+            <div class="empty-state">
+              <i data-lucide="inbox" class="mb-2 opacity-50"></i>
+              <p>No orders yet. Upload a file to get started.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- RECENT ORDERS -->
+        <section id="view-orders" class="view hidden">
+          <div class="header-with-action">
+            <h2>Recent Orders</h2>
+            <span class="subtitle">Last 10 orders</span>
+          </div>
+          <div id="recentOrdersList" class="orders-list">
+            <!-- Populated via JS -->
+            <div class="empty-state">No recent orders yet.</div>
+          </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section id="view-settings" class="view hidden">
+          <h2>Settings</h2>
+          <div class="card glass-card">
+            <form id="settingsForm">
+              <div class="form-group">
+                <label for="sellerName">Seller/Store Name</label>
+                <div class="input-wrapper">
+                  <i data-lucide="store"></i>
+                  <input type="text" id="sellerName" placeholder="My Store" />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="defaultMessage">Default WhatsApp Template</label>
+                <p class="help-text">Available tags: [Name], [Product], [Amount], [Date]</p>
+                <textarea id="defaultMessage" rows="6">Hello [Name],
+Your order for [Product] has been confirmed.
+
+Amount: ₹[Amount]
+Delivery Date: [Date]
+
+Thank you for shopping with us.</textarea>
+              </div>
+
+              <button type="submit" class="btn primary-btn mt-4">Save Settings</button>
+            </form>
+          </div>
+        </section>
+      </main>
+
+      <!-- BOTTOM NAVIGATION -->
+      <nav class="bottom-nav">
+        <a href="#view-home" class="nav-item active" data-target="view-home">
+          <i data-lucide="home"></i>
+          <span>Home</span>
+        </a>
+        <a href="#view-orders" class="nav-item" data-target="view-orders">
+          <i data-lucide="list-ordered"></i>
+          <span>Orders</span>
+        </a>
+        <a href="#view-settings" class="nav-item" data-target="view-settings">
+          <i data-lucide="settings"></i>
+          <span>Settings</span>
+        </a>
+      </nav>
+
+      <!-- TOAST CONTAINER -->
+      <div id="toast-container" class="toast-container"></div>
+    </div>
+    <script type="module" src="/src/script.js"></script>
+    <script>
+      // Initialize icons immediately if available, else standard script handles it
+      if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+      }
+    </script>
+  </body>
+</html>
+
