@@ -51,10 +51,31 @@
             </div>
           </div>
 
+          <!-- Bulk Actions Bar -->
+          <div id="bulkActionBar" class="bulk-action-bar hidden">
+            <div class="bulk-action-content">
+              <div class="bulk-status">
+                <span id="bulkProgressText">0 pending orders</span>
+                <div id="bulkProgressBar" class="progress-bar hidden">
+                  <div class="progress-fill"></div>
+                </div>
+              </div>
+              <div class="bulk-buttons">
+                <button id="btnBulkSend" class="btn primary-btn small-btn">
+                  <i data-lucide="send"></i> Send All
+                </button>
+                <button id="btnBulkStop" class="btn secondary-btn small-btn hidden">
+                  <i data-lucide="square"></i> Stop
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- Filters -->
           <div class="filters-container">
             <button class="filter-btn active" data-filter="all">All</button>
             <button class="filter-btn" data-filter="pending">Pending</button>
+            <button class="filter-btn" data-filter="opened">Opened</button>
             <button class="filter-btn" data-filter="confirmed">Confirmed</button>
           </div>
 
