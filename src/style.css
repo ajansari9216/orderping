@@ -473,13 +473,17 @@ textarea {
   border: 1px dashed rgba(255, 255, 255, 0.2);
   transition: var(--transition);
   text-align: center;
-  position: relative;
-  overflow: hidden;
+  position: sticky;
+  top: 76px;
+  z-index: 30;
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .upload-area:hover {
   border-color: var(--primary);
-  background: rgba(34, 197, 94, 0.05);
+  background: rgba(34, 197, 94, 0.1);
 }
 
 .upload-content {
@@ -511,12 +515,21 @@ textarea {
 
 /* Bulk Action Bar */
 .bulk-action-bar {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
   padding: 16px;
-  margin-bottom: 24px;
   transition: var(--transition);
+  position: fixed;
+  bottom: 110px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 440px;
+  z-index: 50;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 .bulk-action-bar.hidden {
@@ -882,4 +895,98 @@ textarea {
 @keyframes toastExit {
   from { transform: translateY(0); opacity: 1; }
   to { transform: translateY(20px); opacity: 0; }
+}
+
+/* Floating Actions & Modal */
+.floating-actions {
+  position: fixed;
+  bottom: 120px;
+  right: 20px;
+  z-index: 45;
+}
+@media (min-width: 480px) {
+  .floating-actions {
+    right: calc(50% - 240px + 20px);
+  }
+}
+
+.floating-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-radius: 9999px;
+  font-weight: 700;
+  font-size: 0.875rem;
+  border: none;
+  cursor: pointer;
+  transition: var(--transition);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.floating-btn.danger-btn {
+  background: rgba(15, 23, 42, 0.8);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.floating-btn.danger-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(2, 6, 23, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+
+.modal-overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.modal-card {
+  background: #0f172a;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 24px;
+  padding: 32px 24px;
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
+  transform: scale(1);
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+}
+
+.modal-overlay.hidden .modal-card {
+  transform: scale(0.9);
+}
+
+.danger-btn {
+  background: rgba(239, 68, 68, 0.9);
+  color: white;
+}
+.danger-btn:hover {
+  background: #ef4444;
+}
+
+.card-fade-out {
+  animation: fadeOut 0.3s ease forwards;
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.95); }
 }

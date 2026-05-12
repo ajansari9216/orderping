@@ -50,11 +50,13 @@ function loadOrders() {
   updateBulkActionBar();
 }
 
-function saveOrders() {
+function saveOrders(skipRender = false) {
   // Let's cap history at a reasonable limit like 500
   if (orders.length > 500) orders = orders.slice(0, 500);
   localStorage.setItem(DB_ORDERS_KEY, JSON.stringify(orders));
-  renderOrders();
+  if (!skipRender) {
+    renderOrders();
+  }
   updateBulkActionBar();
 }
 
@@ -69,21 +71,24 @@ function saveSettings(settings) {
 
 // --- Utils ---
 function updateBulkActionBar() {
-  if (!bulkActionBar) return;
-  const pendingOrders = orders.filter(o => o.status !== 'confirmed');
-  
+  const floatingActions = document.getElementById('floatingActions');
   if (orders.length === 0) {
-    bulkActionBar.classList.add('hidden');
+    if (bulkActionBar) bulkActionBar.classList.add('hidden');
+    if (floatingActions) floatingActions.classList.add('hidden');
     return;
   }
   
+  if (floatingActions) floatingActions.classList.remove('hidden');
+  if (!bulkActionBar) return;
+  
   bulkActionBar.classList.remove('hidden');
   
+  const pendingOrders = orders.filter(o => o.status === 'pending');
   if (!bulkSendActive) {
     bulkProgressText.textContent = `${pendingOrders.length} pending order${pendingOrders.length === 1 ? '' : 's'}`;
     if (pendingOrders.length === 0) {
       btnBulkSend.style.display = 'none';
-      bulkProgressText.textContent = 'All orders confirmed!';
+      bulkProgressText.textContent = 'All pending orders processed!';
     } else {
       btnBulkSend.style.display = 'flex';
     }
@@ -202,11 +207,16 @@ async function parseFile(file) {
       showToast('No valid new orders found in file.', 'x');
     }
     
-    const totalRejected = invalidCount + dupCount;
-    if (totalRejected > 0) {
+    if (dupCount > 0) {
       setTimeout(() => {
-        showToast(`${totalRejected} invalid/duplicate rows skipped`, 'info');
+        showToast(`${dupCount} duplicate orders removed`, 'info');
       }, 3000);
+    }
+    
+    if (invalidCount > 0) {
+      setTimeout(() => {
+        showToast(`${invalidCount} invalid rows skipped`, 'info');
+      }, 4500);
     }
 
   } catch (err) {
@@ -248,7 +258,7 @@ async function parseExcelCSV(file) {
           const phone = isValidIndianPhone(phoneRaw);
           const price = isValidAmount(priceRaw);
 
-          if (!nameRaw || !phone || !price) {
+          if (!nameRaw || !phone || !price || !productRaw) {
             invalidCount++;
             continue;
           }
@@ -257,7 +267,7 @@ async function parseExcelCSV(file) {
             id: Date.now() + Math.random().toString(36).substring(2, 9),
             customerName: nameRaw,
             phoneNumber: phone,
-            productName: productRaw || "Ordered items",
+            productName: productRaw,
             amount: price,
             status: 'pending',
             timestamp: new Date().toISOString()
@@ -339,11 +349,31 @@ function renderOrders(filter = currentFilter) {
   if (filter === 'confirmed') filtered = orders.filter(o => o.status === 'confirmed');
 
   if (filtered.length === 0) {
-    bulkOrdersList.innerHTML = `
-      <div class="empty-state">
-        <i data-lucide="inbox" class="mb-2 opacity-50 block mx-auto w-12 h-12"></i>
-        <p>No ${filter !== 'all' ? filter : ''} orders found.</p>
-      </div>`;
+    if (orders.length === 0) {
+      // Complete empty state
+      bulkOrdersList.innerHTML = `
+        <div class="empty-state" style="padding: 48px 20px;">
+          <div class="text-[#3b82f6] opacity-80 mb-6 flex justify-center">
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+          </div>
+          <h3 class="text-xl font-bold mb-2">No orders uploaded yet</h3>
+          <p class="text-slate-400 mb-6">Upload an Excel or PDF file to start bulk processing.</p>
+          <button class="btn primary-btn w-full max-w-[240px] mx-auto shadow-lg shadow-blue-500/20" onclick="document.getElementById('fileUpload').click()">
+            <i data-lucide="upload"></i> Upload File
+          </button>
+        </div>`;
+    } else {
+      // Filter empty state
+      bulkOrdersList.innerHTML = `
+        <div class="empty-state" style="padding: 48px 20px;">
+          <i data-lucide="filter" class="mb-4 opacity-50 block mx-auto w-12 h-12 text-slate-500"></i>
+          <p class="text-lg">No ${filter} orders found.</p>
+        </div>`;
+    }
     if (typeof lucide !== 'undefined') lucide.createIcons();
     return;
   }
@@ -436,8 +466,27 @@ window.toggleStatus = (id) => {
   const order = orders.find(o => o.id === id);
   if (order) {
     order.status = order.status === 'confirmed' ? 'pending' : 'confirmed';
-    saveOrders();
+    saveOrders(true);
     vibrate(30);
+    
+    // Update DOM directly instead of full renderOrders to save performance
+    const card = document.querySelector(`.bulk-order-card[data-id="${id}"]`);
+    if (card) {
+      card.className = `bulk-order-card ${order.status}`;
+      const badge = card.querySelector('.status-badge');
+      if (badge) {
+        badge.className = `status-badge ${order.status}`;
+        badge.textContent = order.status;
+      }
+      const toggleBtn = card.querySelector('.btn-toggle');
+      if (toggleBtn) {
+        if (order.status === 'confirmed') {
+          toggleBtn.classList.add('active');
+        } else {
+          toggleBtn.classList.remove('active');
+        }
+      }
+    }
   }
 };
 
@@ -455,7 +504,18 @@ window.sendWA = (id) => {
   // Mark as opened
   if (order.status !== 'confirmed') {
     order.status = 'opened'; 
-    saveOrders();
+    saveOrders(true);
+    
+    // Update DOM directly instead of full re-render
+    const card = document.querySelector(`.bulk-order-card[data-id="${id}"]`);
+    if (card) {
+      card.className = `bulk-order-card ${order.status}`;
+      const badge = card.querySelector('.status-badge');
+      if (badge) {
+        badge.className = `status-badge ${order.status}`;
+        badge.textContent = order.status;
+      }
+    }
   }
   
   showToast('WhatsApp opened', 'message-circle');
@@ -543,7 +603,7 @@ initSettings();
 loadOrders();
 
 async function startBulkSend() {
-  const pendingOrders = orders.filter(o => o.status !== 'confirmed');
+  const pendingOrders = orders.filter(o => o.status === 'pending');
   if (pendingOrders.length === 0) return;
   
   bulkSendActive = true;
@@ -571,7 +631,17 @@ async function startBulkSend() {
     // Mark as opened
     if (order.status !== 'confirmed') {
       order.status = 'opened';
-      saveOrders();
+      saveOrders(true);
+      
+      const card = document.querySelector(`.bulk-order-card[data-id="${order.id}"]`);
+      if (card) {
+        card.className = `bulk-order-card ${order.status}`;
+        const badge = card.querySelector('.status-badge');
+        if (badge) {
+          badge.className = `status-badge ${order.status}`;
+          badge.textContent = order.status;
+        }
+      }
     }
     
     // Delay 2 seconds, unless it's the last one
@@ -601,4 +671,95 @@ function stopBulkSend() {
 
 btnBulkSend.addEventListener('click', startBulkSend);
 btnBulkStop.addEventListener('click', stopBulkSend);
+
+// --- Export Functionality ---
+function exportToCSV(ordersToExport, filename) {
+  if (!ordersToExport || ordersToExport.length === 0) {
+    showToast('No orders to export', 'info');
+    return;
+  }
+  
+  const headers = ['Name', 'Phone', 'Product', 'Amount', 'Status', 'Date'];
+  const rows = ordersToExport.map(o => [
+    `"${o.customerName || ''}"`,
+    `"${o.phoneNumber || ''}"`,
+    `"${o.productName || ''}"`,
+    `"${o.amount || ''}"`,
+    `"${o.status || ''}"`,
+    `"${new Date(o.timestamp).toLocaleString()}"`
+  ]);
+  
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(r => r.join(','))
+  ].join('\n');
+  
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+document.getElementById('btnExportPending')?.addEventListener('click', () => {
+  const pendingOrders = orders.filter(o => o.status === 'pending');
+  exportToCSV(pendingOrders, 'pending_orders.csv');
+});
+
+document.getElementById('btnExportConfirmed')?.addEventListener('click', () => {
+  const confirmedOrders = orders.filter(o => o.status === 'confirmed');
+  exportToCSV(confirmedOrders, 'confirmed_orders.csv');
+});
+
+// --- Delete All Functionality ---
+const btnDeleteAll = document.getElementById('btnDeleteAll');
+const deleteModal = document.getElementById('deleteModal');
+const btnCancelDelete = document.getElementById('btnCancelDelete');
+const btnConfirmDelete = document.getElementById('btnConfirmDelete');
+
+btnDeleteAll?.addEventListener('click', () => {
+  if (bulkSendActive) {
+    showToast('Stop bulk sending before deleting.', 'alert-triangle');
+    vibrate([50, 50, 50]);
+    return;
+  }
+  deleteModal.classList.remove('hidden');
+  vibrate(20);
+});
+
+btnCancelDelete?.addEventListener('click', () => {
+  deleteModal.classList.add('hidden');
+});
+
+btnConfirmDelete?.addEventListener('click', () => {
+  deleteModal.classList.add('hidden');
+  
+  // Fade out cards first
+  const cards = document.querySelectorAll('.bulk-order-card');
+  cards.forEach(card => card.classList.add('card-fade-out'));
+  
+  setTimeout(() => {
+    // Reset state
+    orders = [];
+    currentFilter = 'all';
+    
+    // Update active filter button visually
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      if (btn.dataset.filter === 'all') {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+
+    saveOrders();
+    vibrate([40, 50, 40]);
+    showToast('All orders deleted', 'check-circle-2');
+  }, 300);
+});
+
 
