@@ -19,12 +19,12 @@ const fileInput = document.getElementById('fileInput');
 const filterBtns = document.querySelectorAll('.filter-btn');
 
 // Bulk Action elements
-const bulkActionBar = document.getElementById('bulkActionBar');
-const bulkProgressText = document.getElementById('bulkProgressText');
-const bulkProgressBar = document.getElementById('bulkProgressBar');
-const progressFill = document.querySelector('.progress-fill');
+const compactActionBar = document.getElementById('compactActionBar');
 const btnBulkSend = document.getElementById('btnBulkSend');
 const btnBulkStop = document.getElementById('btnBulkStop');
+const sendPillText = document.getElementById('sendPillText');
+const filterSelect = document.getElementById('filterSelect');
+const exportSelect = document.getElementById('exportSelect');
 
 // --- State ---
 let orders = [];
@@ -71,24 +71,21 @@ function saveSettings(settings) {
 
 // --- Utils ---
 function updateBulkActionBar() {
-  const floatingActions = document.getElementById('floatingActions');
+  const uploadArea = document.getElementById('uploadArea');
   if (orders.length === 0) {
-    if (bulkActionBar) bulkActionBar.classList.add('hidden');
-    if (floatingActions) floatingActions.classList.add('hidden');
+    if (uploadArea) uploadArea.classList.remove('compact');
+    if (compactActionBar) compactActionBar.classList.add('hidden');
     return;
   }
   
-  if (floatingActions) floatingActions.classList.remove('hidden');
-  if (!bulkActionBar) return;
-  
-  bulkActionBar.classList.remove('hidden');
+  if (uploadArea) uploadArea.classList.add('compact');
+  if (compactActionBar) compactActionBar.classList.remove('hidden');
   
   const pendingOrders = orders.filter(o => o.status === 'pending');
   if (!bulkSendActive) {
-    bulkProgressText.textContent = `${pendingOrders.length} pending order${pendingOrders.length === 1 ? '' : 's'}`;
+    if (sendPillText) sendPillText.textContent = `Send (${pendingOrders.length})`;
     if (pendingOrders.length === 0) {
       btnBulkSend.style.display = 'none';
-      bulkProgressText.textContent = 'All pending orders processed!';
     } else {
       btnBulkSend.style.display = 'flex';
     }
@@ -348,23 +345,14 @@ function renderOrders(filter = currentFilter) {
   if (filter === 'opened') filtered = orders.filter(o => o.status === 'opened');
   if (filter === 'confirmed') filtered = orders.filter(o => o.status === 'confirmed');
 
+  filterSelect.value = filter;
+  
   if (filtered.length === 0) {
     if (orders.length === 0) {
-      // Complete empty state
+      // Complete empty state - handled by hero, just show a subtle message
       bulkOrdersList.innerHTML = `
         <div class="empty-state" style="padding: 48px 20px;">
-          <div class="text-[#3b82f6] opacity-80 mb-6 flex justify-center">
-            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="17 8 12 3 7 8"></polyline>
-              <line x1="12" y1="3" x2="12" y2="15"></line>
-            </svg>
-          </div>
-          <h3 class="text-xl font-bold mb-2">No orders uploaded yet</h3>
-          <p class="text-slate-400 mb-6">Upload an Excel or PDF file to start bulk processing.</p>
-          <button class="btn primary-btn w-full max-w-[240px] mx-auto shadow-lg shadow-blue-500/20" onclick="document.getElementById('fileUpload').click()">
-            <i data-lucide="upload"></i> Upload File
-          </button>
+          <p style="color: var(--text-muted); font-size: 0.875rem;">Awaiting your first upload...</p>
         </div>`;
     } else {
       // Filter empty state
@@ -545,12 +533,19 @@ fileInput.addEventListener('change', (e) => {
   if (file) parseFile(file);
 });
 
-filterBtns.forEach(btn => {
-  btn.addEventListener('click', (e) => {
-    filterBtns.forEach(b => b.classList.remove('active'));
-    e.target.classList.add('active');
-    renderOrders(e.target.dataset.filter);
-  });
+filterSelect?.addEventListener('change', (e) => {
+  renderOrders(e.target.value);
+});
+
+exportSelect?.addEventListener('change', (e) => {
+  const val = e.target.value;
+  if (!val) return;
+  
+  const ordersToExport = orders.filter(o => o.status === val);
+  exportToCSV(ordersToExport, `${val}_orders.csv`);
+  
+  // reset select
+  exportSelect.value = "";
 });
 
 navItems.forEach(item => {
@@ -609,7 +604,6 @@ async function startBulkSend() {
   bulkSendActive = true;
   btnBulkSend.classList.add('hidden');
   btnBulkStop.classList.remove('hidden');
-  bulkProgressBar.classList.remove('hidden');
   
   for (let i = 0; i < pendingOrders.length; i++) {
     if (!bulkSendActive) break; // Check for stop
@@ -617,8 +611,7 @@ async function startBulkSend() {
     const order = pendingOrders[i];
     
     // Update UI
-    bulkProgressText.textContent = `Sending ${i + 1} of ${pendingOrders.length}...`;
-    progressFill.style.width = `${((i + 1) / pendingOrders.length) * 100}%`;
+    sendPillText.textContent = `${i + 1}/${pendingOrders.length}`;
     
     // Open WA
     const msg = generateMessage(order);
@@ -653,8 +646,6 @@ async function startBulkSend() {
   bulkSendActive = false;
   btnBulkSend.classList.remove('hidden');
   btnBulkStop.classList.add('hidden');
-  bulkProgressBar.classList.add('hidden');
-  progressFill.style.width = '0%';
   updateBulkActionBar();
   showToast('Bulk send completed!');
 }
@@ -663,8 +654,6 @@ function stopBulkSend() {
   bulkSendActive = false;
   btnBulkSend.classList.remove('hidden');
   btnBulkStop.classList.add('hidden');
-  bulkProgressBar.classList.add('hidden');
-  progressFill.style.width = '0%';
   updateBulkActionBar();
   showToast('Bulk send stopped', 'square');
 }
@@ -705,23 +694,13 @@ function exportToCSV(ordersToExport, filename) {
   document.body.removeChild(link);
 }
 
-document.getElementById('btnExportPending')?.addEventListener('click', () => {
-  const pendingOrders = orders.filter(o => o.status === 'pending');
-  exportToCSV(pendingOrders, 'pending_orders.csv');
-});
-
-document.getElementById('btnExportConfirmed')?.addEventListener('click', () => {
-  const confirmedOrders = orders.filter(o => o.status === 'confirmed');
-  exportToCSV(confirmedOrders, 'confirmed_orders.csv');
-});
-
 // --- Delete All Functionality ---
-const btnDeleteAll = document.getElementById('btnDeleteAll');
+const btnSettingsDeleteAll = document.getElementById('btnSettingsDeleteAll');
 const deleteModal = document.getElementById('deleteModal');
 const btnCancelDelete = document.getElementById('btnCancelDelete');
 const btnConfirmDelete = document.getElementById('btnConfirmDelete');
 
-btnDeleteAll?.addEventListener('click', () => {
+btnSettingsDeleteAll?.addEventListener('click', () => {
   if (bulkSendActive) {
     showToast('Stop bulk sending before deleting.', 'alert-triangle');
     vibrate([50, 50, 50]);
@@ -746,15 +725,7 @@ btnConfirmDelete?.addEventListener('click', () => {
     // Reset state
     orders = [];
     currentFilter = 'all';
-    
-    // Update active filter button visually
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-      if (btn.dataset.filter === 'all') {
-        btn.classList.add('active');
-      } else {
-        btn.classList.remove('active');
-      }
-    });
+    if (filterSelect) filterSelect.value = 'all';
 
     saveOrders();
     vibrate([40, 50, 40]);

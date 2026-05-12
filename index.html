@@ -39,53 +39,75 @@
       <main id="main-content">
         <!-- HOME (BULK ORDERS) -->
         <section id="view-home" class="view active">
-          <!-- Sticky Upload Area -->
-          <div class="upload-area card" id="uploadArea">
+          <!-- Premium Hero / Upload Area -->
+          <div class="hero-upload" id="uploadArea">
             <input type="file" id="fileInput" accept=".csv, .xlsx, .xls, .pdf" hidden />
-            <div class="upload-content">
-              <i data-lucide="upload-cloud" class="upload-icon"></i>
-              <div>
-                <p class="upload-title">Upload Excel, CSV or PDF</p>
-                <p class="upload-subtitle">Auto-extract orders instantly</p>
+            
+            <div class="hero-illustration" id="heroIllustration">
+               <div class="workflow-visual">
+                 <div class="workflow-node excel-node">
+                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                 </div>
+                 
+                 <div class="workflow-line">
+                   <div class="line-dot"></div>
+                   <div class="line-dot delay-1"></div>
+                 </div>
+
+                 <div class="workflow-node orders-node">
+                   <div class="mini-cards">
+                     <div class="m-card c3"></div>
+                     <div class="m-card c2"></div>
+                     <div class="m-card c1">
+                       <div class="m-line short"></div>
+                       <div class="m-line long"></div>
+                     </div>
+                   </div>
+                 </div>
+
+                 <div class="workflow-line">
+                   <div class="line-dot delay-2"></div>
+                   <div class="line-dot delay-3"></div>
+                 </div>
+
+                 <div class="workflow-node wa-node">
+                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+                 </div>
+               </div>
+            </div>
+
+            <div class="hero-content">
+              <div class="hero-text-block">
+                <h2 class="hero-title" id="heroTitle">Automate your order flow</h2>
+                <p class="hero-subtitle" id="heroSubtitle">Upload Excel, CSV, or PDF</p>
               </div>
+              <button class="action-pill primary-pill upload-btn-ui" id="uploadBtnUI" type="button">
+                <i data-lucide="plus"></i> <span id="uploadBtnText">New File</span>
+              </button>
             </div>
           </div>
 
-          <!-- Bulk Actions Bar -->
-          <div id="bulkActionBar" class="bulk-action-bar hidden">
-            <div class="bulk-action-content">
-              <div class="bulk-status">
-                <span id="bulkProgressText">0 pending orders</span>
-                <div id="bulkProgressBar" class="progress-bar hidden">
-                  <div class="progress-fill"></div>
-                </div>
-              </div>
-              <div class="bulk-buttons">
-                <button id="btnBulkSend" class="btn primary-btn small-btn">
-                  <i data-lucide="send"></i> Send All
-                </button>
-                <button id="btnBulkStop" class="btn secondary-btn small-btn hidden">
-                  <i data-lucide="square"></i> Stop
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Filters -->
-          <div class="filters-container">
-            <button class="filter-btn active" data-filter="all">All</button>
-            <button class="filter-btn" data-filter="pending">Pending</button>
-            <button class="filter-btn" data-filter="opened">Opened</button>
-            <button class="filter-btn" data-filter="confirmed">Confirmed</button>
-          </div>
-
-          <div class="export-actions" style="display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto;">
-            <button id="btnExportPending" class="btn secondary-btn small-btn flex-1" style="font-size:0.75rem;">
-              <i data-lucide="download"></i> Export Pending
+          <!-- Compact Actions Row -->
+          <div id="compactActionBar" class="compact-actions-row hidden">
+            <button id="btnBulkSend" class="action-pill primary-pill">
+              <i data-lucide="send"></i> <span id="sendPillText">Send All</span>
             </button>
-            <button id="btnExportConfirmed" class="btn secondary-btn small-btn flex-1" style="font-size:0.75rem;">
-              <i data-lucide="download"></i> Export Confirmed
+            <button id="btnBulkStop" class="action-pill danger-pill hidden">
+              <i data-lucide="square"></i> Stop
             </button>
+
+            <select id="exportSelect" class="action-pill secondary-pill select-pill">
+              <option value="" disabled selected>Export</option>
+              <option value="pending">Export Pending</option>
+              <option value="confirmed">Export Confirmed</option>
+            </select>
+
+            <select id="filterSelect" class="action-pill secondary-pill select-pill">
+              <option value="all">All Orders</option>
+              <option value="pending">Pending</option>
+              <option value="opened">Opened</option>
+              <option value="confirmed">Confirmed</option>
+            </select>
           </div>
 
           <!-- Bulk Orders List -->
@@ -148,6 +170,16 @@ Thank you for shopping with us.</textarea>
               <button type="submit" class="btn primary-btn mt-4">Save Settings</button>
             </form>
           </div>
+          
+          <div class="settings-danger-zone" style="margin-top: 32px;">
+            <h3 style="color:#ef4444; font-size:1rem; margin-bottom: 12px; font-weight:600;">Danger Zone</h3>
+            <div class="card glass-card" style="border-color: rgba(239, 68, 68, 0.2);">
+              <p style="font-size:0.875rem; color:var(--text-muted); margin-bottom: 16px;">This will permanently remove all orders from this device.</p>
+              <button id="btnSettingsDeleteAll" class="btn danger-btn" type="button">
+                <i data-lucide="trash-2"></i> Delete All Orders
+              </button>
+            </div>
+          </div>
         </section>
       </main>
 
@@ -166,13 +198,6 @@ Thank you for shopping with us.</textarea>
           <span>Settings</span>
         </a>
       </nav>
-
-      <!-- Floating Actions -->
-      <div id="floatingActions" class="floating-actions hidden">
-        <button id="btnDeleteAll" class="floating-btn danger-btn shadow-lg">
-          <i data-lucide="trash-2"></i> Delete All
-        </button>
-      </div>
 
       <!-- Delete Confirmation Modal -->
       <div id="deleteModal" class="modal-overlay hidden">
