@@ -27,34 +27,65 @@ const exportSelect = document.getElementById('exportSelect');
 
 // --- State ---
 let orders = [];
+let uploads = [];
+let activeUploadId = null;
 let currentFilter = 'all';
+let currentDeliveryFilter = 'all';
+let currentRiskFilter = 'all';
 let guidedActive = false;
 let guidedIndex = parseInt(localStorage.getItem('orderPing_guidedIndex')) || 0;
 
 // --- Database (LocalStorage) ---
+const DB_UPLOADS_KEY = 'orderping_uploads';
 const DB_ORDERS_KEY = 'orderping_bulk_orders';
 const DB_SETTINGS_KEY = 'orderping_settings';
 
 const defaultSettings = {
   sellerName: '',
-  defaultMessage: `Hi [Name],
-Your order for [Product] worth ₹[Amount] is confirmed.
-
-Reply YES to confirm delivery.`
+  activeTemplateId: 'default-1',
+  templates: [
+    {
+      id: 'default-1',
+      name: 'English COD',
+      text: `Hello {name},\nYour order for {product} worth ₹{amount} is confirmed.\n\nReply YES to confirm delivery.`
+    },
+    {
+      id: 'default-2',
+      name: 'Hindi COD',
+      text: `Namaste {name},\nAapka ₹{amount} ka {product} ka order confirm ho gaya hai.\n\nDelivery confirm karne ke liye YES reply karein.`
+    },
+    {
+      id: 'default-3',
+      name: 'Short WA',
+      text: `Hi {name}, {product} (₹{amount}) ordered successfully! Reply YES to confirm.`
+    }
+  ],
+  defaultMessage: '' // legacy
 };
 
 function loadOrders() {
-  const saved = localStorage.getItem(DB_ORDERS_KEY);
-  orders = saved ? JSON.parse(saved) : [];
+  const savedOrders = localStorage.getItem(DB_ORDERS_KEY);
+  orders = savedOrders ? JSON.parse(savedOrders) : [];
+  
+  const savedUploads = localStorage.getItem(DB_UPLOADS_KEY);
+  uploads = savedUploads ? JSON.parse(savedUploads) : [];
+  
+  if (uploads.length > 0) {
+    if (!activeUploadId || !uploads.find(u => u.id === activeUploadId)) {
+      activeUploadId = uploads[0].id;
+    }
+  }
+
+  renderUploads();
   renderOrders();
   updateBulkActionBar();
 }
 
 function saveOrders(skipRender = false) {
-  // Let's cap history at a reasonable limit like 500
-  if (orders.length > 500) orders = orders.slice(0, 500);
   localStorage.setItem(DB_ORDERS_KEY, JSON.stringify(orders));
+  localStorage.setItem(DB_UPLOADS_KEY, JSON.stringify(uploads));
   if (!skipRender) {
+    renderUploads();
     renderOrders();
   }
   updateBulkActionBar();
@@ -71,24 +102,7 @@ function saveSettings(settings) {
 
 // --- Utils ---
 function updateBulkActionBar() {
-  const uploadArea = document.getElementById('uploadArea');
-  const fpCard = document.getElementById('fpCard');
-  if (orders.length === 0) {
-    if (uploadArea) uploadArea.classList.remove('compact');
-    if (compactActionBar) compactActionBar.classList.add('hidden');
-    if (fpCard) fpCard.classList.remove('hidden');
-    return;
-  }
-  
-  if (uploadArea) uploadArea.classList.add('compact');
-  if (compactActionBar) compactActionBar.classList.remove('hidden');
-  if (fpCard) fpCard.classList.add('hidden');
-  
-  const pendingOrders = orders.filter(o => o.status === 'pending');
-  // Feature temporarily disabled
-  if (btnBulkSend) {
-    btnBulkSend.style.display = 'none';
-  }
+  // No-op for now, simplified view management
 }
 
 function vibrate(pattern = 50) {
@@ -126,11 +140,36 @@ function switchView(targetViewId) {
 
 function generateMessage(order) {
   const settings = getSettings();
-  let msg = settings.defaultMessage;
+  
+  // Use new template system
+  let template = settings.templates.find(t => t.id === settings.activeTemplateId);
+  let msg = template ? template.text : settings.defaultMessage;
+  
   msg = msg.replace(/\[Name\]|\{name\}/gi, order.customerName || 'Customer');
   msg = msg.replace(/\[Product\]|\{product\}/gi, order.productName || 'Product');
   msg = msg.replace(/\[Amount\]|\{price\}/gi, order.amount || '0');
+  msg = msg.replace(/\[Date\]|\{date\}/gi, new Date().toLocaleDateString());
   return msg;
+}
+
+// --- Risk Evaluation ---
+function evalRisk(order) {
+  const allPhones = orders.filter(o => o.phoneNumber === order.phoneNumber);
+  
+  if (parseFloat(order.amount) >= 5000) {
+    return { level: 'medium', label: '🟡 Medium Risk (High COD Amount)', value: 'medium' };
+  }
+  
+  if (allPhones.length > 1) {
+    // Repeated phone number
+    const cancelled = allPhones.filter(o => o.deliveryStatus === 'Cancelled');
+    if (cancelled.length > 0) {
+      return { level: 'high', label: '🔴 High Risk (Repeated Cancellations)', value: 'high' };
+    }
+    return { level: 'medium', label: '🟡 Medium Risk (Repeated Customer)', value: 'medium' };
+  }
+  
+  return { level: 'low', label: '🟢 Low Risk', value: 'low' };
 }
 
 // --- Validation Helpers ---
@@ -181,13 +220,18 @@ async function parseFile(file) {
     
     const { extracted, invalidCount } = res;
     
+    // Create new upload entry
+    const newUploadId = 'up_' + Date.now();
+    
     const unique = [];
-    const seenPhones = new Set(orders.map(o => o.phoneNumber));
+    const seenPhones = new Set();
     let dupCount = 0;
     
     extracted.forEach(o => {
+      // Very basic dedup within the file
       if (!seenPhones.has(o.phoneNumber)) {
         seenPhones.add(o.phoneNumber);
+        o.uploadId = newUploadId;
         unique.push(o);
       } else {
         dupCount++;
@@ -195,17 +239,28 @@ async function parseFile(file) {
     });
 
     if (unique.length > 0) {
+      const newUpload = {
+        id: newUploadId,
+        filename: file.name,
+        total: unique.length,
+        timestamp: new Date().toISOString()
+      };
+      
+      uploads.unshift(newUpload);
+      activeUploadId = newUploadId;
       orders = [...unique, ...orders];
+      
       saveOrders();
       showToast(`Added ${unique.length} new orders!`, 'check-circle-2');
       vibrate(50);
+      switchView('view-orders'); // Move to dashboard on successful upload
     } else {
       showToast('No valid new orders found in file.', 'x');
     }
     
     if (dupCount > 0) {
       setTimeout(() => {
-        showToast(`${dupCount} duplicate orders removed`, 'info');
+        showToast(`${dupCount} duplicate rows in file removed`, 'info');
       }, 3000);
     }
     
@@ -259,13 +314,16 @@ async function parseExcelCSV(file) {
             continue;
           }
 
-          extracted.push({
+         extracted.push({
             id: Date.now() + Math.random().toString(36).substring(2, 9),
+            uploadId: null, // will be set in parseFile
             customerName: nameRaw,
             phoneNumber: phone,
             productName: productRaw,
             amount: price,
             status: 'pending',
+            deliveryStatus: 'Pending',
+            notes: '',
             timestamp: new Date().toISOString()
           });
         }
@@ -319,11 +377,14 @@ async function parsePDF(file) {
 
           parsed.push({
              id: Date.now() + Math.random().toString(36).substring(2, 9),
+             uploadId: null, // will be set in parseFile
              customerName: name,
              phoneNumber: phone,
              productName: 'Ordered item',
              amount: price,
              status: 'pending',
+             deliveryStatus: 'Pending',
+             notes: '',
              timestamp: new Date().toISOString()
           });
         }
@@ -337,61 +398,161 @@ async function parsePDF(file) {
 }
 
 // --- Renderers ---
-function renderOrders(filter = currentFilter) {
-  currentFilter = filter;
-  let filtered = orders;
-  if (filter === 'pending') filtered = orders.filter(o => o.status === 'pending');
-  if (filter === 'opened') filtered = orders.filter(o => o.status === 'opened');
-  if (filter === 'confirmed') filtered = orders.filter(o => o.status === 'confirmed');
+function renderUploads() {
+  const list = document.getElementById('recentUploadsList');
+  if (!list) return;
 
-  filterSelect.value = filter;
-  
-  if (filtered.length === 0) {
-    if (orders.length === 0) {
-      // Complete empty state - handled by hero, just show a subtle message
-      bulkOrdersList.innerHTML = `
-        <div class="empty-state" style="padding: 48px 20px;">
-          <p style="color: var(--text-muted); font-size: 0.875rem;">Awaiting your first upload...</p>
-        </div>`;
-    } else {
-      // Filter empty state
-      bulkOrdersList.innerHTML = `
-        <div class="empty-state" style="padding: 48px 20px;">
-          <i data-lucide="filter" class="mb-4 opacity-50 block mx-auto w-12 h-12 text-slate-500"></i>
-          <p class="text-lg">No ${filter} orders found.</p>
-        </div>`;
-    }
+  if (uploads.length === 0) {
+    list.innerHTML = `<div class="empty-state">No upload history found.</div>`;
+    return;
+  }
+
+  list.innerHTML = uploads.map(u => `
+    <div class="upload-history-card" onclick="reopenUpload('${u.id}')">
+      <div class="uh-info">
+        <h4>${u.filename}</h4>
+        <p>${new Date(u.timestamp).toLocaleString()} • ${u.total} orders</p>
+      </div>
+      <div class="uh-actions">
+        ${u.id === activeUploadId ? `<span class="badge" style="background:var(--primary);color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;">ACTIVE</span>` : ''}
+        <button class="icon-action-btn btn-delete" onclick="event.stopPropagation(); deleteUpload('${u.id}')">
+          <i data-lucide="trash-2"></i>
+        </button>
+      </div>
+    </div>
+  `).join('');
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function renderOrders() {
+  const statTotal = document.getElementById('statTotal');
+  const statPending = document.getElementById('statPending');
+  const statConfirmed = document.getElementById('statConfirmed');
+  const statRisk = document.getElementById('statRisk');
+
+  if (!orders || orders.length === 0) {
+    if (statTotal) statTotal.textContent = '--';
+    if (statPending) statPending.textContent = '--';
+    if (statConfirmed) statConfirmed.textContent = '--';
+    if (statRisk) statRisk.textContent = '--';
+    
+    bulkOrdersList.innerHTML = `
+      <div class="dashboard-empty-state">
+        <div class="de-icon-wrap">
+          <i data-lucide="package-open" class="de-icon"></i>
+        </div>
+        <h3 class="de-title">Awaiting Orders</h3>
+        <p class="de-subtitle">Upload your first batch to start tracking and messaging customers instantly.</p>
+        <button class="de-action-btn" onclick="switchView('view-home')">
+          Go to Home
+        </button>
+      </div>`;
     if (typeof lucide !== 'undefined') lucide.createIcons();
     return;
   }
 
-  bulkOrdersList.innerHTML = filtered.map(order => `
+  // Filter based on currently active upload
+  const activeOrders = orders.filter(o => o.uploadId === activeUploadId);
+
+  // Update Stats
+  if (statTotal) statTotal.textContent = activeOrders.length;
+  if (statPending) {
+    statPending.textContent = activeOrders.filter(o => o.deliveryStatus === 'Pending').length;
+  }
+  if (statConfirmed) {
+    statConfirmed.textContent = activeOrders.filter(o => o.deliveryStatus === 'Confirmed').length;
+  }
+  if (statRisk) {
+    statRisk.textContent = activeOrders.filter(o => evalRisk(o).level === 'high').length;
+  }
+
+  // Apply filters
+  const waFilter = document.getElementById('filterSelect')?.value || 'all';
+  const deliveryFilter = document.getElementById('deliveryFilter')?.value || 'all';
+  const riskFilter = document.getElementById('riskFilter')?.value || 'all';
+  const q = document.getElementById('smartSearchInput')?.value.toLowerCase() || '';
+
+  const filtered = activeOrders.filter(o => {
+    if (waFilter !== 'all' && o.status !== waFilter) return false;
+    if (deliveryFilter !== 'all' && o.deliveryStatus !== deliveryFilter) return false;
+    if (riskFilter !== 'all') {
+      const riskLevel = evalRisk(o).level;
+      if (riskLevel !== riskFilter) return false;
+    }
+    if (q) {
+      if (!((o.customerName && o.customerName.toLowerCase().includes(q)) || 
+            (o.productName && o.productName.toLowerCase().includes(q)) ||
+            (o.phoneNumber && o.phoneNumber.includes(q)))) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    bulkOrdersList.innerHTML = `
+      <div class="empty-state" style="padding: 48px 20px;">
+        <i data-lucide="filter" class="mb-4 opacity-50 block mx-auto w-12 h-12 text-slate-500"></i>
+        <p class="text-lg">No orders match these filters.</p>
+      </div>`;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    return;
+  }
+
+  bulkOrdersList.innerHTML = filtered.map(order => {
+    const risk = evalRisk(order);
+    const hasNotes = !!order.notes;
+    return `
     <div class="bulk-order-card ${order.status}" data-id="${order.id}">
-      <div class="status-badge ${order.status}">${order.status}</div>
-      <div class="bulk-order-header">
-        <div>
-          <h3 class="customer-name">${order.customerName}</h3>
-          <p class="customer-phone">${order.phoneNumber}</p>
-        </div>
-        <button class="icon-action-btn btn-delete" onclick="deleteOrder('${order.id}')">
-          <i data-lucide="trash-2"></i>
-        </button>
+      <div class="card-top-badges">
+        <div class="status-badge ${order.status}">${order.status}</div>
+        <div class="risk-badge risk-${risk.level}">${risk.label}</div>
       </div>
       
-      <div class="bulk-order-details">
+      <div class="bulk-order-header border-b border-[#334155] border-opacity-50 pb-3 mb-3">
+        <div>
+          <h3 class="customer-name" style="font-size:1.125rem">${order.customerName}</h3>
+          <p class="customer-phone" style="font-family:monospace">${order.phoneNumber}</p>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="icon-action-btn ${hasNotes ? 'bg-blue-500/20 text-blue-400' : ''}" onclick="toggleNotes('${order.id}')">
+            <i data-lucide="file-edit"></i>
+          </button>
+          <button class="icon-action-btn btn-delete" onclick="deleteOrder('${order.id}')">
+            <i data-lucide="trash-2"></i>
+          </button>
+        </div>
+      </div>
+      
+      <div class="bulk-order-details" style="grid-template-columns: 1fr 1fr;">
         <div class="detail-col">
-          <label>Product</label>
-          <p>${order.productName}</p>
+          <label>Product & Amount</label>
+          <p class="truncate text-sm text-white">${order.productName}</p>
+          <p class="price-text mt-1 text-sm">₹${order.amount}</p>
         </div>
         <div class="detail-col">
-          <label>Amount</label>
-          <p class="price-text">₹${order.amount}</p>
+          <label>Delivery Status</label>
+          <div class="delivery-select-wrap mt-1">
+            <select class="delivery-select" onchange="updateDeliveryStatus('${order.id}', this.value)">
+              <option value="Pending" ${order.deliveryStatus === 'Pending' ? 'selected' : ''}>Pending</option>
+              <option value="Confirmed" ${order.deliveryStatus === 'Confirmed' ? 'selected' : ''}>Confirmed</option>
+              <option value="Packed" ${order.deliveryStatus === 'Packed' ? 'selected' : ''}>Packed</option>
+              <option value="Shipped" ${order.deliveryStatus === 'Shipped' ? 'selected' : ''}>Shipped</option>
+              <option value="Delivered" ${order.deliveryStatus === 'Delivered' ? 'selected' : ''}>Delivered</option>
+              <option value="Cancelled" ${order.deliveryStatus === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+            </select>
+            <i data-lucide="chevron-down"></i>
+          </div>
         </div>
       </div>
 
-      <div class="bulk-order-actions">
-        <button class="action-btn btn-wa" onclick="sendWA('${order.id}')">
-          <i data-lucide="message-circle"></i> WhatsApp
+      <div class="order-notes-wrapper ${hasNotes ? '' : 'hidden'}" id="notes_wrapper_${order.id}">
+        <textarea id="notes_text_${order.id}" class="order-notes-textarea" placeholder="Add seller notes here..." onblur="saveNotes('${order.id}', this.value)">${order.notes || ''}</textarea>
+      </div>
+
+      <div class="bulk-order-actions mt-3 pt-3 border-t border-[#334155] border-opacity-50">
+        <button class="action-btn btn-wa flex-1" onclick="sendWA('${order.id}')">
+          <i data-lucide="message-circle"></i> Send WA
         </button>
         <button class="action-btn btn-copy" onclick="copyMessage('${order.id}')">
           <i data-lucide="copy"></i>
@@ -401,46 +562,95 @@ function renderOrders(filter = currentFilter) {
         </button>
       </div>
     </div>
-  `).join('');
+  `}).join('');
 
   if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
-function renderSearch(query) {
-  if (!query) {
-    searchResults.innerHTML = '';
-    return;
-  }
-  
-  const q = query.toLowerCase();
-  const filtered = orders.filter(o => 
-    (o.customerName && o.customerName.toLowerCase().includes(q)) || 
-    (o.productName && o.productName.toLowerCase().includes(q)) ||
-    (o.phoneNumber && o.phoneNumber.includes(q))
-  );
-  
-  if (filtered.length === 0) {
-    searchResults.innerHTML = '<div class="empty-state">No matches found.</div>';
-    return;
-  }
-  
-  // Reuse same card markup for search results
-  searchResults.innerHTML = filtered.map(order => `
-    <div class="bulk-order-card bg-[#1e293b] border-[#334155] p-4 rounded-xl mb-3 shadow">
-       <div class="flex justify-between items-center mb-2">
-         <h3 class="font-bold text-white text-lg">${order.customerName}</h3>
-         <span class="text-xs bg-[#0f172a] px-2 py-1 rounded text-[#94a3b8]">${order.phoneNumber}</span>
-       </div>
-       <div class="flex justify-between text-sm text-[#94a3b8]">
-         <span>${order.productName}</span>
-         <span class="font-bold text-[#22c55e]">₹${order.amount}</span>
-       </div>
-    </div>
-  `).join('');
-}
-
 
 // --- Global Actions (attached to window for onclick) ---
+window.toggleNotes = (id) => {
+  const el = document.getElementById(`notes_wrapper_${id}`);
+  if (el) {
+    el.classList.toggle('hidden');
+    if (!el.classList.contains('hidden')) {
+      const ta = document.getElementById(`notes_text_${id}`);
+      if (ta) ta.focus();
+    }
+  }
+};
+
+window.saveNotes = (id, text) => {
+  const order = orders.find(o => o.id === id);
+  if (order) {
+    order.notes = text;
+    saveOrders(true); // skip render to keep focus
+    
+    // Update icon highlight
+    const card = document.querySelector(`.bulk-order-card[data-id="${id}"]`);
+    if (card) {
+      const btn = card.querySelector('button[onclick*="toggleNotes"]');
+      if (text) {
+        btn.classList.add('bg-blue-500/20', 'text-blue-400');
+      } else {
+        btn.classList.remove('bg-blue-500/20', 'text-blue-400');
+        document.getElementById(`notes_wrapper_${id}`).classList.add('hidden');
+      }
+    }
+  }
+};
+
+window.updateDeliveryStatus = (id, value) => {
+  const order = orders.find(o => o.id === id);
+  if (order) {
+    order.deliveryStatus = value;
+    saveOrders(true);
+    showToast(`Status updated to ${value}`, 'check');
+    
+    // If it was cancelled, re-render to update the risk badge immediately
+    if (value === 'Cancelled' || order.deliveryStatus === 'Cancelled') {
+       renderOrders();
+    }
+  }
+};
+
+window.setDeliveryFilter = (val) => {
+  const el = document.getElementById('deliveryFilter');
+  if (el) {
+    el.value = val;
+    renderOrders();
+    vibrate(15);
+  }
+};
+
+window.setRiskFilter = (val) => {
+  const el = document.getElementById('riskFilter');
+  if (el) {
+    el.value = val;
+    renderOrders();
+    vibrate(15);
+  }
+};
+
+window.deleteUpload = (id) => {
+  if (confirm("Are you sure you want to delete this upload and all its orders?")) {
+    uploads = uploads.filter(u => u.id !== id);
+    orders = orders.filter(o => o.uploadId !== id);
+    if (activeUploadId === id) {
+      activeUploadId = uploads.length > 0 ? uploads[0].id : null;
+    }
+    saveOrders();
+    vibrate(30);
+  }
+};
+
+window.reopenUpload = (id) => {
+  activeUploadId = id;
+  switchView('view-orders');
+  renderUploads();
+  renderOrders();
+};
+
 window.deleteOrder = (id) => {
   if (confirm("Are you sure you want to delete this order?")) {
     orders = orders.filter(o => o.id !== id);
@@ -532,18 +742,19 @@ fileInput.addEventListener('change', (e) => {
   if (file) parseFile(file);
 });
 
-filterSelect?.addEventListener('change', (e) => {
-  renderOrders(e.target.value);
-});
+document.getElementById('filterSelect')?.addEventListener('change', () => renderOrders());
+document.getElementById('deliveryFilter')?.addEventListener('change', () => renderOrders());
+document.getElementById('riskFilter')?.addEventListener('change', () => renderOrders());
+document.getElementById('smartSearchInput')?.addEventListener('input', () => renderOrders());
 
 exportSelect?.addEventListener('change', (e) => {
   const val = e.target.value;
   if (!val) return;
   
-  const ordersToExport = orders.filter(o => o.status === val);
+  const activeOrders = orders.filter(o => o.uploadId === activeUploadId);
+  const ordersToExport = val === 'all' ? activeOrders : activeOrders.filter(o => o.status === val);
   exportToCSV(ordersToExport, `${val}_orders.csv`);
   
-  // reset select
   exportSelect.value = "";
 });
 
@@ -555,41 +766,108 @@ navItems.forEach(item => {
   });
 });
 
-// Settings init
+// --- Template & Settings Logic ---
+const templateSelect = document.getElementById('templateSelect');
+const templateIdInput = document.getElementById('templateId');
+const templateNameInput = document.getElementById('templateName');
+const templateTextInput = document.getElementById('templateText');
+
 function initSettings() {
   const s = getSettings();
-  sellerNameInput.value = s.sellerName;
-  defaultMessageInput.value = s.defaultMessage;
+  if (sellerNameInput) sellerNameInput.value = s.sellerName;
+  populateTemplateSelect(s);
+  loadTemplateForm(s.activeTemplateId, s);
 }
 
-settingsForm.addEventListener('submit', (e) => {
-  e.preventDefault();
-  saveSettings({
-    sellerName: sellerNameInput.value,
-    defaultMessage: defaultMessageInput.value
-  });
-  vibrate(40);
-  showToast('Settings saved!');
+function populateTemplateSelect(s) {
+  if (!templateSelect) return;
+  templateSelect.innerHTML = s.templates.map(t => 
+    `<option value="${t.id}" ${t.id === s.activeTemplateId ? 'selected' : ''}>${t.name}</option>`
+  ).join('');
+}
+
+function loadTemplateForm(id, s) {
+  const t = s.templates.find(x => x.id === id);
+  if (t) {
+    templateIdInput.value = t.id;
+    templateNameInput.value = t.name;
+    templateTextInput.value = t.text;
+  }
+}
+
+templateSelect?.addEventListener('change', (e) => {
+  const s = getSettings();
+  s.activeTemplateId = e.target.value;
+  saveSettings(s);
+  loadTemplateForm(s.activeTemplateId, s);
+  vibrate(20);
 });
 
-// Search functionality
-function openSearch() {
-  searchOverlay.classList.remove('hidden');
-  globalSearchInput.focus();
-  renderSearch(globalSearchInput.value);
-}
+document.getElementById('btnSaveTemplate')?.addEventListener('click', () => {
+  if (!templateNameInput.value || !templateTextInput.value) {
+    showToast('Name and Content are required', 'alert-circle');
+    return;
+  }
+  
+  const s = getSettings();
+  const id = templateIdInput.value || ('tpl_' + Date.now());
+  const index = s.templates.findIndex(t => t.id === id);
+  
+  const tpl = {
+    id,
+    name: templateNameInput.value,
+    text: templateTextInput.value
+  };
+  
+  if (index >= 0) {
+    s.templates[index] = tpl;
+  } else {
+    s.templates.push(tpl);
+  }
+  
+  s.activeTemplateId = id;
+  saveSettings(s);
+  populateTemplateSelect(s);
+  loadTemplateForm(id, s);
+  
+  vibrate(30);
+  showToast('Template saved', 'check');
+});
 
-function closeSearch() {
-  searchOverlay.classList.add('hidden');
-  globalSearchInput.value = '';
-  searchResults.innerHTML = '';
-}
+document.getElementById('btnNewTemplate')?.addEventListener('click', () => {
+  templateIdInput.value = '';
+  templateNameInput.value = '';
+  templateTextInput.value = '';
+  templateNameInput.focus();
+});
 
-searchToggleBtn.addEventListener('click', openSearch);
-closeSearchBtn.addEventListener('click', closeSearch);
+document.getElementById('btnDeleteTemplate')?.addEventListener('click', () => {
+  const id = templateIdInput.value;
+  if (!id) return;
+  
+  const s = getSettings();
+  if (s.templates.length <= 1) {
+    showToast('Cannot delete the last template', 'alert-circle');
+    return;
+  }
+  
+  if (confirm('Delete this template?')) {
+    s.templates = s.templates.filter(t => t.id !== id);
+    s.activeTemplateId = s.templates[0].id;
+    saveSettings(s);
+    populateTemplateSelect(s);
+    loadTemplateForm(s.activeTemplateId, s);
+    showToast('Template deleted', 'trash');
+  }
+});
 
-globalSearchInput.addEventListener('input', (e) => {
-  renderSearch(e.target.value);
+settingsForm?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const s = getSettings();
+  s.sellerName = sellerNameInput.value;
+  saveSettings(s);
+  vibrate(40);
+  showToast('Store settings saved!');
 });
 
 // INIT
@@ -821,20 +1099,21 @@ btnCancelDelete?.addEventListener('click', () => {
 btnConfirmDelete?.addEventListener('click', () => {
   deleteModal.classList.add('hidden');
   
-  // Fade out cards first
-  const cards = document.querySelectorAll('.bulk-order-card');
-  cards.forEach(card => card.classList.add('card-fade-out'));
+  // Reset state completely
+  orders = [];
+  uploads = [];
+  activeUploadId = null;
   
-  setTimeout(() => {
-    // Reset state
-    orders = [];
-    currentFilter = 'all';
-    if (filterSelect) filterSelect.value = 'all';
+  currentFilter = 'all';
+  if (document.getElementById('filterSelect')) document.getElementById('filterSelect').value = 'all';
+  if (document.getElementById('deliveryFilter')) document.getElementById('deliveryFilter').value = 'all';
+  if (document.getElementById('riskFilter')) document.getElementById('riskFilter').value = 'all';
+  if (document.getElementById('smartSearchInput')) document.getElementById('smartSearchInput').value = '';
 
-    saveOrders();
-    vibrate([40, 50, 40]);
-    showToast('All orders deleted', 'check-circle-2');
-  }, 300);
+  saveOrders();
+  vibrate([40, 50, 40]);
+  showToast('All data deleted', 'check-circle-2');
+  switchView('view-home');
 });
 
 

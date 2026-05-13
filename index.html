@@ -17,41 +17,11 @@
         <h1 class="logo">
           <i data-lucide="zap" class="logo-icon"></i> OrderPing
         </h1>
-        <div class="header-actions">
-          <button id="searchToggleBtn" class="icon-btn" aria-label="Search">
-            <i data-lucide="search"></i>
-          </button>
-        </div>
       </header>
 
-      <!-- SEARCH OVERLAY -->
-      <div id="search-overlay" class="search-overlay hidden">
-        <div class="search-bar-container">
-          <i data-lucide="search" class="search-icon"></i>
-          <input type="text" id="globalSearchInput" placeholder="Search orders by name..." autocomplete="off" />
-          <button id="closeSearchBtn" class="icon-btn">
-            <i data-lucide="x"></i>
-          </button>
-        </div>
-        <div id="searchResults" class="search-results"></div>
-      </div>
-
       <main id="main-content">
-        <!-- HOME (BULK ORDERS) -->
+        <!-- HOME (UPLOADS & HISTORY) -->
         <section id="view-home" class="view active">
-          <!-- Guided Workflow Top Progress -->
-          <div id="guidedProgressContainer" class="guided-progress hidden">
-            <div class="guided-header">
-              <span id="guidedProgressText" class="guided-text">0 of 0 orders processed</span>
-              <button id="btnExitGuided" class="icon-btn-small guided-close" aria-label="Exit">
-                <i data-lucide="x"></i>
-              </button>
-            </div>
-            <div class="guided-progress-bar">
-              <div id="guidedProgressFill" class="guided-progress-fill"></div>
-            </div>
-          </div>
-
           <!-- Premium Hero / Upload Area -->
           <div class="hero-upload" id="uploadArea">
             <input type="file" id="fileInput" accept=".csv, .xlsx, .xls, .pdf" hidden />
@@ -148,59 +118,139 @@
             </button>
           </div>
 
-          <!-- Compact Actions Row -->
-          <div id="compactActionBar" class="compact-actions-row hidden">
+          <!-- Recent Uploads History -->
+          <div class="header-with-action mt-6 mb-4">
+            <h2>Recent Uploads</h2>
+          </div>
+          <div id="recentUploadsList" class="uploads-list">
+            <div class="empty-state">No upload history found.</div>
+          </div>
+        </section>
 
-            <select id="exportSelect" class="action-pill secondary-pill select-pill">
-              <option value="" disabled selected>Export</option>
-              <option value="pending">Export Pending</option>
-              <option value="confirmed">Export Confirmed</option>
-            </select>
+        <!-- DASHBOARD (ORDERS & FILTERS) -->
+        <section id="view-orders" class="view hidden">
+          <!-- Guided Workflow Top Progress -->
+          <div id="guidedProgressContainer" class="guided-progress hidden">
+            <div class="guided-header">
+              <span id="guidedProgressText" class="guided-text">0 of 0 orders processed</span>
+              <button id="btnExitGuided" class="icon-btn-small guided-close" aria-label="Exit">
+                <i data-lucide="x"></i>
+              </button>
+            </div>
+            <div class="guided-progress-bar">
+              <div id="guidedProgressFill" class="guided-progress-fill"></div>
+            </div>
+          </div>
 
-            <select id="filterSelect" class="action-pill secondary-pill select-pill">
-              <option value="all">All Orders</option>
-              <option value="pending">Pending</option>
-              <option value="opened">Opened</option>
-              <option value="confirmed">Confirmed</option>
-            </select>
+          <!-- Smart Search + Filters Drawer -->
+          <div class="dashboard-controls">
+            <!-- Search -->
+            <div class="smart-search-wrapper">
+              <i data-lucide="search" class="search-icon-sm"></i>
+              <input type="text" id="smartSearchInput" placeholder="Search name, phone, product..." class="smart-search-input" />
+            </div>
+
+            <!-- Mini Stats Row -->
+            <div class="mini-stats-row" id="dashboardStats">
+              <div class="mini-stat-card cursor-pointer hover:bg-white/5 transition-all" onclick="setDeliveryFilter('all')">
+                <span class="stat-label">Total</span>
+                <span class="stat-value" id="statTotal">--</span>
+              </div>
+              <div class="mini-stat-card cursor-pointer hover:bg-white/5 transition-all" onclick="setDeliveryFilter('Pending')">
+                <span class="stat-label">Pending</span>
+                <span class="stat-value text-blue-400" id="statPending">--</span>
+              </div>
+              <div class="mini-stat-card cursor-pointer hover:bg-white/5 transition-all" onclick="setDeliveryFilter('Confirmed')">
+                <span class="stat-label">Confirmed</span>
+                <span class="stat-value text-green-400" id="statConfirmed">--</span>
+              </div>
+              <div class="mini-stat-card cursor-pointer hover:bg-white/5 transition-all" onclick="setRiskFilter('high')">
+                <span class="stat-label">High Risk</span>
+                <span class="stat-value text-red-500" id="statRisk">--</span>
+              </div>
+            </div>
+            
+            <!-- Horizontal Filter Chips -->
+            <div id="compactActionBar" class="compact-actions-row no-scrollbar">
+              <select id="deliveryFilter" class="action-pill glass-pill select-pill">
+                <option value="all">Delivery</option>
+                <option value="Pending">Pending</option>
+                <option value="Confirmed">Confirmed</option>
+                <option value="Packed">Packed</option>
+                <option value="Shipped">Shipped</option>
+                <option value="Delivered">Delivered</option>
+                <option value="Cancelled">Cancelled</option>
+              </select>
+
+              <select id="riskFilter" class="action-pill glass-pill select-pill">
+                <option value="all">Risk</option>
+                <option value="high">🔴 High</option>
+                <option value="medium">🟡 Medium</option>
+                <option value="low">🟢 Low</option>
+              </select>
+
+              <select id="filterSelect" class="action-pill glass-pill select-pill">
+                <option value="all">WhatsApp</option>
+                <option value="pending">WA Pending</option>
+                <option value="opened">WA Opened</option>
+                <option value="confirmed">WA Confirmed</option>
+              </select>
+              
+              <select id="exportSelect" class="action-pill glass-pill select-pill">
+                <option value="" disabled selected>Export</option>
+                <option value="pending">Exp. Pending</option>
+                <option value="confirmed">Exp. Confirmed</option>
+                <option value="all">Export All</option>
+              </select>
+            </div>
           </div>
 
           <!-- Bulk Orders List -->
           <div id="bulkOrdersList" class="orders-list">
             <!-- Populated via JS -->
-            <div class="empty-state" style="padding: 48px 20px;">
-              <div class="text-[#3b82f6] opacity-80 mb-6 flex justify-center">
-                <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="17 8 12 3 7 8"></polyline>
-                  <line x1="12" y1="3" x2="12" y2="15"></line>
-                </svg>
+            <div class="dashboard-empty-state">
+              <div class="de-icon-wrap">
+                <i data-lucide="package-open" class="de-icon"></i>
               </div>
-              <h3 class="text-xl font-bold mb-2">No orders uploaded yet</h3>
-              <p class="text-slate-400 mb-6">Upload an Excel or PDF file to start bulk processing.</p>
-              <button class="btn primary-btn w-full max-w-[240px] mx-auto shadow-lg shadow-blue-500/20" onclick="document.getElementById('fileUpload').click()">
-                <i data-lucide="upload"></i> Upload File
+              <h3 class="de-title">Awaiting Orders</h3>
+              <p class="de-subtitle">Upload your first batch to start tracking and messaging customers instantly.</p>
+              <button class="de-action-btn" onclick="switchView('view-home')">
+                Go to Home
               </button>
             </div>
           </div>
         </section>
 
-        <!-- RECENT ORDERS -->
-        <section id="view-orders" class="view hidden">
-          <div class="header-with-action">
-            <h2>Recent Orders</h2>
-            <span class="subtitle">Last 10 orders</span>
-          </div>
-          <div id="recentOrdersList" class="orders-list">
-            <!-- Populated via JS -->
-            <div class="empty-state">No recent orders yet.</div>
-          </div>
-        </section>
-
-        <!-- SETTINGS -->
+        <!-- SETTINGS & TEMPLATES -->
         <section id="view-settings" class="view hidden">
-          <h2>Settings</h2>
-          <div class="card glass-card">
+          <h2>Message Templates</h2>
+          <div class="card glass-card mb-6">
+            <div class="current-template-header mb-4">
+              <label for="templateSelect" class="block mb-2 text-sm font-semibold">Active Template</label>
+              <select id="templateSelect" class="w-full bg-[#0f172a] text-white p-3 rounded-xl border border-[#334155]"></select>
+            </div>
+            
+            <form id="templateForm">
+              <div class="form-group">
+                <input type="hidden" id="templateId" />
+                <label for="templateName">Template Name</label>
+                <input type="text" id="templateName" class="w-full bg-[#0f172a] text-white p-3 rounded-xl border border-[#334155] mb-4" placeholder="e.g. Hindi COD" required />
+                
+                <label for="templateText">Message Content</label>
+                <p class="help-text text-xs text-slate-400 mb-2">Variables: {name}, {product}, {amount}</p>
+                <textarea id="templateText" class="w-full bg-[#0f172a] text-white p-3 rounded-xl border border-[#334155] mb-4" rows="6" required></textarea>
+              </div>
+
+              <div class="flex gap-2">
+                <button type="button" id="btnSaveTemplate" class="btn primary-btn flex-1">Save / Update</button>
+                <button type="button" id="btnNewTemplate" class="action-pill secondary-pill px-4">New</button>
+                <button type="button" id="btnDeleteTemplate" class="action-pill danger-pill px-4"><i data-lucide="trash-2"></i></button>
+              </div>
+            </form>
+          </div>
+
+          <h2>Store Settings</h2>
+          <div class="card glass-card mb-6">
             <form id="settingsForm">
               <div class="form-group">
                 <label for="sellerName">Seller/Store Name</label>
@@ -209,29 +259,16 @@
                   <input type="text" id="sellerName" placeholder="My Store" />
                 </div>
               </div>
-
-              <div class="form-group">
-                <label for="defaultMessage">Default WhatsApp Template</label>
-                <p class="help-text">Available tags: [Name], [Product], [Amount], [Date]</p>
-                <textarea id="defaultMessage" rows="6">Hello [Name],
-Your order for [Product] has been confirmed.
-
-Amount: ₹[Amount]
-Delivery Date: [Date]
-
-Thank you for shopping with us.</textarea>
-              </div>
-
-              <button type="submit" class="btn primary-btn mt-4">Save Settings</button>
+              <button type="submit" class="btn primary-btn mt-4 w-full">Save Store Settings</button>
             </form>
           </div>
           
-          <div class="settings-danger-zone" style="margin-top: 32px;">
+          <div class="settings-danger-zone">
             <h3 style="color:#ef4444; font-size:1rem; margin-bottom: 12px; font-weight:600;">Danger Zone</h3>
             <div class="card glass-card" style="border-color: rgba(239, 68, 68, 0.2);">
-              <p style="font-size:0.875rem; color:var(--text-muted); margin-bottom: 16px;">This will permanently remove all orders from this device.</p>
-              <button id="btnSettingsDeleteAll" class="btn danger-btn" type="button">
-                <i data-lucide="trash-2"></i> Delete All Orders
+              <p style="font-size:0.875rem; color:var(--text-muted); margin-bottom: 16px;">This will permanently remove all orders and upload history from this device.</p>
+              <button id="btnSettingsDeleteAll" class="btn danger-btn w-full" type="button">
+                <i data-lucide="trash-2"></i> Delete All Data
               </button>
             </div>
           </div>
