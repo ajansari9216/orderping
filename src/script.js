@@ -72,23 +72,22 @@ function saveSettings(settings) {
 // --- Utils ---
 function updateBulkActionBar() {
   const uploadArea = document.getElementById('uploadArea');
+  const fpCard = document.getElementById('fpCard');
   if (orders.length === 0) {
     if (uploadArea) uploadArea.classList.remove('compact');
     if (compactActionBar) compactActionBar.classList.add('hidden');
+    if (fpCard) fpCard.classList.remove('hidden');
     return;
   }
   
   if (uploadArea) uploadArea.classList.add('compact');
   if (compactActionBar) compactActionBar.classList.remove('hidden');
+  if (fpCard) fpCard.classList.add('hidden');
   
   const pendingOrders = orders.filter(o => o.status === 'pending');
-  if (!guidedActive) {
-    if (sendPillText) sendPillText.textContent = `Start Sending (${pendingOrders.length})`;
-    if (pendingOrders.length === 0) {
-      btnBulkSend.style.display = 'none';
-    } else {
-      btnBulkSend.style.display = 'inline-flex';
-    }
+  // Feature temporarily disabled
+  if (btnBulkSend) {
+    btnBulkSend.style.display = 'none';
   }
 }
 
@@ -764,7 +763,7 @@ document.getElementById('btnGuidedConfirm')?.addEventListener('click', () => {
 
 document.getElementById('btnExitGuided')?.addEventListener('click', stopGuidedWorkflow);
 
-btnBulkSend.addEventListener('click', startGuidedWorkflow);
+btnBulkSend?.addEventListener('click', startGuidedWorkflow);
 
 // --- Export Functionality ---
 function exportToCSV(ordersToExport, filename) {
