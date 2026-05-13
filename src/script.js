@@ -21,7 +21,6 @@ const filterBtns = document.querySelectorAll('.filter-btn');
 // Bulk Action elements
 const compactActionBar = document.getElementById('compactActionBar');
 const btnBulkSend = document.getElementById('btnBulkSend');
-const btnBulkStop = document.getElementById('btnBulkStop');
 const sendPillText = document.getElementById('sendPillText');
 const filterSelect = document.getElementById('filterSelect');
 const exportSelect = document.getElementById('exportSelect');
@@ -29,7 +28,8 @@ const exportSelect = document.getElementById('exportSelect');
 // --- State ---
 let orders = [];
 let currentFilter = 'all';
-let bulkSendActive = false;
+let guidedActive = false;
+let guidedIndex = parseInt(localStorage.getItem('orderPing_guidedIndex')) || 0;
 
 // --- Database (LocalStorage) ---
 const DB_ORDERS_KEY = 'orderping_bulk_orders';
@@ -82,12 +82,12 @@ function updateBulkActionBar() {
   if (compactActionBar) compactActionBar.classList.remove('hidden');
   
   const pendingOrders = orders.filter(o => o.status === 'pending');
-  if (!bulkSendActive) {
-    if (sendPillText) sendPillText.textContent = `Send (${pendingOrders.length})`;
+  if (!guidedActive) {
+    if (sendPillText) sendPillText.textContent = `Start Sending (${pendingOrders.length})`;
     if (pendingOrders.length === 0) {
       btnBulkSend.style.display = 'none';
     } else {
-      btnBulkSend.style.display = 'flex';
+      btnBulkSend.style.display = 'inline-flex';
     }
   }
 }
@@ -597,69 +597,174 @@ globalSearchInput.addEventListener('input', (e) => {
 initSettings();
 loadOrders();
 
-async function startBulkSend() {
-  const pendingOrders = orders.filter(o => o.status === 'pending');
-  if (pendingOrders.length === 0) return;
+function startGuidedWorkflow() {
+  if (orders.length === 0) return;
   
-  bulkSendActive = true;
-  btnBulkSend.classList.add('hidden');
-  btnBulkStop.classList.remove('hidden');
+  guidedActive = true;
+  document.body.classList.add('guided-active');
   
-  for (let i = 0; i < pendingOrders.length; i++) {
-    if (!bulkSendActive) break; // Check for stop
-    
-    const order = pendingOrders[i];
-    
-    // Update UI
-    sendPillText.textContent = `${i + 1}/${pendingOrders.length}`;
-    
-    // Open WA
-    const msg = generateMessage(order);
-    let ph = order.phoneNumber.replace(/\D/g, '');
-    if (ph.length === 10) ph = '91' + ph;
-    const url = `https://wa.me/${ph}?text=${encodeURIComponent(msg)}`;
-    
-    window.open(url, '_blank');
-    
-    // Mark as opened
-    if (order.status !== 'confirmed') {
-      order.status = 'opened';
-      saveOrders(true);
-      
-      const card = document.querySelector(`.bulk-order-card[data-id="${order.id}"]`);
-      if (card) {
-        card.className = `bulk-order-card ${order.status}`;
-        const badge = card.querySelector('.status-badge');
-        if (badge) {
-          badge.className = `status-badge ${order.status}`;
-          badge.textContent = order.status;
-        }
-      }
+  // Show Guided UI
+  const progContainer = document.getElementById('guidedProgressContainer');
+  const botBar = document.getElementById('guidedBottomBar');
+  if (progContainer) progContainer.classList.remove('hidden');
+  if (botBar) {
+    botBar.classList.remove('hidden');
+    setTimeout(() => botBar.classList.add('active'), 10);
+  }
+  
+  if (filterSelect) filterSelect.value = 'all';
+  renderOrders('all');
+  
+  if (isNaN(guidedIndex) || guidedIndex < 0 || guidedIndex >= orders.length) {
+    guidedIndex = 0;
+  }
+  
+  // Skip to first unconfirmed
+  let startIndex = guidedIndex;
+  while(startIndex < orders.length && orders[startIndex].status === 'confirmed') {
+    startIndex++;
+  }
+  
+  if (startIndex < orders.length) {
+    guidedIndex = startIndex;
+  } else {
+    startIndex = 0;
+    while(startIndex < orders.length && orders[startIndex].status === 'confirmed') {
+      startIndex++;
     }
-    
-    // Delay 2 seconds, unless it's the last one
-    if (i < pendingOrders.length - 1 && bulkSendActive) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
+    if (startIndex < orders.length) {
+      guidedIndex = startIndex;
+    } else {
+      guidedIndex = 0;
     }
   }
   
-  bulkSendActive = false;
-  btnBulkSend.classList.remove('hidden');
-  btnBulkStop.classList.add('hidden');
-  updateBulkActionBar();
-  showToast('Bulk send completed!');
+  localStorage.setItem('orderPing_guidedIndex', guidedIndex);
+  updateGuidedUI();
+  
+  // Open WA for the first one automatically
+  openWhatsAppForGuided();
 }
 
-function stopBulkSend() {
-  bulkSendActive = false;
-  btnBulkSend.classList.remove('hidden');
-  btnBulkStop.classList.add('hidden');
+function stopGuidedWorkflow() {
+  guidedActive = false;
+  document.body.classList.remove('guided-active');
+  
+  const progContainer = document.getElementById('guidedProgressContainer');
+  const botBar = document.getElementById('guidedBottomBar');
+  
+  if (progContainer) progContainer.classList.add('hidden');
+  if (botBar) {
+    botBar.classList.remove('active');
+    setTimeout(() => botBar.classList.add('hidden'), 300);
+  }
+  
+  document.querySelectorAll('.bulk-order-card').forEach(c => c.classList.remove('guided-highlight'));
   updateBulkActionBar();
-  showToast('Bulk send stopped', 'square');
 }
 
-btnBulkSend.addEventListener('click', startBulkSend);
-btnBulkStop.addEventListener('click', stopBulkSend);
+function updateGuidedUI() {
+  if (!guidedActive) return;
+  
+  const confirmedCount = orders.filter(o => o.status === 'confirmed').length;
+  const totalCount = orders.length;
+  
+  const progressText = document.getElementById('guidedProgressText');
+  const progressFill = document.getElementById('guidedProgressFill');
+  
+  if (progressText) progressText.textContent = `${confirmedCount} of ${totalCount} orders processed`;
+  if (progressFill) {
+    const pct = totalCount === 0 ? 0 : (confirmedCount / totalCount) * 100;
+    progressFill.style.width = `${pct}%`;
+  }
+  
+  document.querySelectorAll('.bulk-order-card').forEach(c => c.classList.remove('guided-highlight'));
+  if (guidedIndex < orders.length) {
+    const currentOrder = orders[guidedIndex];
+    const card = document.querySelector(`.bulk-order-card[data-id="${currentOrder.id}"]`);
+    if (card) {
+      card.classList.add('guided-highlight');
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+}
+
+function openWhatsAppForGuided() {
+  if (guidedIndex >= orders.length) return;
+  const order = orders[guidedIndex];
+  
+  if (order.status === 'pending') {
+    order.status = 'opened';
+    saveOrders(true);
+    
+    const card = document.querySelector(`.bulk-order-card[data-id="${order.id}"]`);
+    if (card) {
+      card.className = `bulk-order-card ${order.status} guided-highlight`;
+      const badge = card.querySelector('.status-badge');
+      if (badge) {
+        badge.className = `status-badge ${order.status}`;
+        badge.textContent = order.status;
+      }
+    }
+  }
+  
+  const msg = generateMessage(order);
+  let ph = order.phoneNumber.replace(/\D/g, '');
+  if (ph.length === 10) ph = '91' + ph;
+  const url = `https://wa.me/${ph}?text=${encodeURIComponent(msg)}`;
+  window.open(url, '_blank');
+}
+
+document.getElementById('btnGuidedNext')?.addEventListener('click', () => {
+  if (guidedIndex < orders.length - 1) {
+    guidedIndex++;
+    localStorage.setItem('orderPing_guidedIndex', guidedIndex);
+    updateGuidedUI();
+    openWhatsAppForGuided();
+  } else {
+    showToast('You reached the end of the list.');
+  }
+});
+
+document.getElementById('btnGuidedPrev')?.addEventListener('click', () => {
+  if (guidedIndex > 0) {
+    guidedIndex--;
+    localStorage.setItem('orderPing_guidedIndex', guidedIndex);
+    updateGuidedUI();
+  } else {
+    showToast('Already at the first order.');
+  }
+});
+
+document.getElementById('btnGuidedConfirm')?.addEventListener('click', () => {
+  if (guidedIndex >= orders.length) return;
+  const order = orders[guidedIndex];
+  
+  if (order.status !== 'confirmed') {
+    order.status = 'confirmed';
+    saveOrders(true);
+    
+    const card = document.querySelector(`.bulk-order-card[data-id="${order.id}"]`);
+    if (card) {
+      card.className = `bulk-order-card ${order.status} guided-highlight`;
+      const badge = card.querySelector('.status-badge');
+      if (badge) {
+        badge.className = `status-badge ${order.status}`;
+        badge.textContent = order.status;
+      }
+    }
+    
+    updateGuidedUI();
+    vibrate(20);
+    showToast('Order confirmed', 'check');
+  } else {
+    showToast('Order already confirmed');
+  }
+});
+
+document.getElementById('btnExitGuided')?.addEventListener('click', stopGuidedWorkflow);
+
+btnBulkSend.addEventListener('click', startGuidedWorkflow);
 
 // --- Export Functionality ---
 function exportToCSV(ordersToExport, filename) {
@@ -701,8 +806,8 @@ const btnCancelDelete = document.getElementById('btnCancelDelete');
 const btnConfirmDelete = document.getElementById('btnConfirmDelete');
 
 btnSettingsDeleteAll?.addEventListener('click', () => {
-  if (bulkSendActive) {
-    showToast('Stop bulk sending before deleting.', 'alert-triangle');
+  if (guidedActive) {
+    showToast('Stop guided workflow before deleting.', 'alert-triangle');
     vibrate([50, 50, 50]);
     return;
   }

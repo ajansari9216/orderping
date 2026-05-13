@@ -39,6 +39,19 @@
       <main id="main-content">
         <!-- HOME (BULK ORDERS) -->
         <section id="view-home" class="view active">
+          <!-- Guided Workflow Top Progress -->
+          <div id="guidedProgressContainer" class="guided-progress hidden">
+            <div class="guided-header">
+              <span id="guidedProgressText" class="guided-text">0 of 0 orders processed</span>
+              <button id="btnExitGuided" class="icon-btn-small guided-close" aria-label="Exit">
+                <i data-lucide="x"></i>
+              </button>
+            </div>
+            <div class="guided-progress-bar">
+              <div id="guidedProgressFill" class="guided-progress-fill"></div>
+            </div>
+          </div>
+
           <!-- Premium Hero / Upload Area -->
           <div class="hero-upload" id="uploadArea">
             <input type="file" id="fileInput" accept=".csv, .xlsx, .xls, .pdf" hidden />
@@ -90,10 +103,7 @@
           <!-- Compact Actions Row -->
           <div id="compactActionBar" class="compact-actions-row hidden">
             <button id="btnBulkSend" class="action-pill primary-pill">
-              <i data-lucide="send"></i> <span id="sendPillText">Send All</span>
-            </button>
-            <button id="btnBulkStop" class="action-pill danger-pill hidden">
-              <i data-lucide="square"></i> Stop
+              <i data-lucide="play"></i> <span id="sendPillText">Start Sending</span>
             </button>
 
             <select id="exportSelect" class="action-pill secondary-pill select-pill">
@@ -182,6 +192,19 @@ Thank you for shopping with us.</textarea>
           </div>
         </section>
       </main>
+
+      <!-- Guided Workflow Bottom Actions -->
+      <div id="guidedBottomBar" class="guided-bottom-bar hidden">
+        <button id="btnGuidedPrev" class="guided-action-btn secondary">
+          <i data-lucide="chevron-left"></i>
+        </button>
+        <button id="btnGuidedConfirm" class="guided-action-btn success flex-1">
+          <i data-lucide="check"></i> Confirm
+        </button>
+        <button id="btnGuidedNext" class="guided-action-btn primary flex-1">
+          Next <i data-lucide="arrow-right"></i>
+        </button>
+      </div>
 
       <!-- BOTTOM NAVIGATION -->
       <nav class="bottom-nav">
