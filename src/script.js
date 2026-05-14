@@ -145,9 +145,10 @@ function generateMessage(order) {
   let template = settings.templates.find(t => t.id === settings.activeTemplateId);
   let msg = template ? template.text : settings.defaultMessage;
   
-  msg = msg.replace(/\[Name\]|\{name\}/gi, order.customerName || 'Customer');
-  msg = msg.replace(/\[Product\]|\{product\}/gi, order.productName || 'Product');
-  msg = msg.replace(/\[Amount\]|\{price\}/gi, order.amount || '0');
+  msg = msg.replace(/\[Name\]|\{name\}/gi, String(order.customerName || 'Customer'));
+  msg = msg.replace(/\[Product\]|\{product\}/gi, String(order.productName || 'Product'));
+  msg = msg.replace(/\[Amount\]|\{amount\}|\{price\}/gi, String(order.amount || '0'));
+  msg = msg.replace(/\[Phone\]|\{phone\}/gi, String(order.phoneNumber || ''));
   msg = msg.replace(/\[Date\]|\{date\}/gi, new Date().toLocaleDateString());
   return msg;
 }
@@ -1116,4 +1117,24 @@ btnConfirmDelete?.addEventListener('click', () => {
   switchView('view-home');
 });
 
+// --- Smart Auto-Hide Header on Scroll ---
+let lastScrollY = window.scrollY;
+window.addEventListener('scroll', () => {
+  const dashboardControls = document.querySelector('.dashboard-controls');
+  if (!dashboardControls) return;
+  
+  // Only apply when in orders view and not in guided mode
+  const viewOrders = document.getElementById('view-orders');
+  if (viewOrders && !viewOrders.classList.contains('active')) return;
+  if (document.body.classList.contains('guided-active')) return;
 
+  const currentScrollY = window.scrollY;
+  if (currentScrollY > lastScrollY && currentScrollY > 120) {
+    // Scrolling down
+    dashboardControls.classList.add('hidden-scroll');
+  } else {
+    // Scrolling up
+    dashboardControls.classList.remove('hidden-scroll');
+  }
+  lastScrollY = currentScrollY;
+}, { passive: true });
