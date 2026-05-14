@@ -1119,22 +1119,52 @@ btnConfirmDelete?.addEventListener('click', () => {
 
 // --- Smart Auto-Hide Header on Scroll ---
 let lastScrollY = window.scrollY;
-window.addEventListener('scroll', () => {
-  const dashboardControls = document.querySelector('.dashboard-controls');
-  if (!dashboardControls) return;
-  
-  // Only apply when in orders view and not in guided mode
-  const viewOrders = document.getElementById('view-orders');
-  if (viewOrders && !viewOrders.classList.contains('active')) return;
-  if (document.body.classList.contains('guided-active')) return;
+let upScrollAccumulator = 0;
+let isScrolling = false;
+const UP_SCROLL_THRESHOLD = 60;
 
-  const currentScrollY = window.scrollY;
-  if (currentScrollY > lastScrollY && currentScrollY > 120) {
-    // Scrolling down
-    dashboardControls.classList.add('hidden-scroll');
-  } else {
-    // Scrolling up
-    dashboardControls.classList.remove('hidden-scroll');
+window.addEventListener('scroll', () => {
+  if (!isScrolling) {
+    window.requestAnimationFrame(() => {
+      const dashboardControls = document.querySelector('.dashboard-controls');
+      if (!dashboardControls) {
+        isScrolling = false;
+        return;
+      }
+      
+      // Only apply when in orders view and not in guided mode
+      const viewOrders = document.getElementById('view-orders');
+      if (viewOrders && !viewOrders.classList.contains('active')) {
+        isScrolling = false;
+        return;
+      }
+      if (document.body.classList.contains('guided-active')) {
+        isScrolling = false;
+        return;
+      }
+
+      const currentScrollY = window.scrollY;
+      const deltaY = currentScrollY - lastScrollY;
+      
+      if (currentScrollY <= 80) {
+        // Always show at the very top
+        dashboardControls.classList.remove('hidden-scroll');
+        upScrollAccumulator = 0;
+      } else if (deltaY > 0) {
+        // Scrolling down
+        dashboardControls.classList.add('hidden-scroll');
+        upScrollAccumulator = 0; // Reset UP count
+      } else if (deltaY < 0) {
+        // Scrolling up
+        upScrollAccumulator += Math.abs(deltaY);
+        if (upScrollAccumulator >= UP_SCROLL_THRESHOLD) {
+          dashboardControls.classList.remove('hidden-scroll');
+        }
+      }
+      
+      lastScrollY = currentScrollY;
+      isScrolling = false;
+    });
+    isScrolling = true;
   }
-  lastScrollY = currentScrollY;
 }, { passive: true });
