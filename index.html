@@ -13,15 +13,106 @@
   <body>
     <div id="app" class="app-container">
       <!-- TOP BAR -->
-      <header class="top-bar">
+      <header class="top-bar hidden-unauth">
         <h1 class="logo">
           <i data-lucide="zap" class="logo-icon"></i> OrderPing
         </h1>
+        <div class="flex items-center gap-3">
+           <button id="menuBtn" class="menu-trigger-btn">
+             <i data-lucide="more-vertical"></i>
+           </button>
+        </div>
+
+        <!-- Dropdown Menu -->
+        <div id="navDropdown" class="nav-dropdown hidden">
+          <div class="dropdown-header">
+            <p id="menuUserEmail" class="text-xs text-slate-400 truncate">user@example.com</p>
+          </div>
+          <div class="dropdown-divider"></div>
+          <a href="#view-home" class="dropdown-item" data-target="view-home">
+             <i data-lucide="home"></i> Home
+          </a>
+          <a href="#view-orders" class="dropdown-item" data-target="view-orders">
+             <i data-lucide="list"></i> Orders
+          </a>
+          <a href="#view-home" class="dropdown-item" data-target="view-home">
+             <i data-lucide="upload"></i> Uploads
+          </a>
+          <a href="#view-settings" class="dropdown-item" data-target="view-settings">
+             <i data-lucide="layout"></i> Templates
+          </a>
+          <a href="#view-settings" class="dropdown-item" data-target="view-settings">
+             <i data-lucide="settings"></i> Settings
+          </a>
+          <div class="dropdown-divider"></div>
+          <button id="btnLogoutMenu" class="dropdown-item text-red-400">
+             <i data-lucide="log-out"></i> Logout
+          </button>
+        </div>
       </header>
 
       <main id="main-content">
+        <!-- AUTH VIEW (Full Screen Premium SaaS) -->
+        <section id="view-auth" class="view active">
+          <div class="auth-fullscreen-container">
+            <div class="auth-brand">
+              <div class="auth-logo-premium">
+                <i data-lucide="zap"></i>
+              </div>
+              <h1 class="auth-app-name">OrderPing</h1>
+            </div>
+
+            <div class="auth-content">
+              <div class="auth-text-center">
+                <h2 class="auth-headline" id="authTitle">Manage COD Orders Faster</h2>
+                <p class="auth-subtitle-premium" id="authSubtitle">Secure seller dashboard</p>
+              </div>
+
+              <div class="auth-card-saas">
+                <div id="authFormSection">
+                  <form id="authForm" class="auth-form-premium">
+                    <div class="auth-input-group">
+                      <div class="premium-input-wrap">
+                        <i data-lucide="mail"></i>
+                        <input type="email" id="authEmail" placeholder="Email address" required />
+                      </div>
+                    </div>
+                    <div class="auth-input-group">
+                      <div class="premium-input-wrap">
+                        <i data-lucide="lock"></i>
+                        <input type="password" id="authPassword" placeholder="Password" required />
+                      </div>
+                    </div>
+                    
+                    <button type="submit" id="btnAuthSubmit" class="btn premium-primary-btn">
+                      <span>Login</span>
+                    </button>
+                    
+                    <button type="button" id="btnSwitchAuth" class="btn premium-ghost-btn">
+                      Create Account
+                    </button>
+
+                    <div class="auth-sub-links">
+                       <a href="#" class="forgot-link">Forgot password?</a>
+                    </div>
+                  </form>
+                </div>
+
+                <div id="authLoadingState" class="hidden">
+                   <div class="premium-loader"></div>
+                   <p class="loader-text">Authenticating...</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="auth-footer-premium">
+               <p>Powered by <span class="supabase-text">Supabase</span></p>
+            </div>
+          </div>
+        </section>
+
         <!-- HOME (UPLOADS & HISTORY) -->
-        <section id="view-home" class="view active">
+        <section id="view-home" class="view hidden">
           <!-- Premium Hero / Upload Area -->
           <div class="hero-upload" id="uploadArea">
             <input type="file" id="fileInput" accept=".csv, .xlsx, .xls, .pdf" hidden />
@@ -263,6 +354,36 @@
             </form>
           </div>
           
+          <h2>Notification Settings</h2>
+          <div class="card glass-card mb-6">
+            <div class="flex items-center justify-between p-2">
+              <div>
+                <h4 class="font-bold text-sm">Haptic Feedback</h4>
+                <p class="text-xs text-slate-400">Vibrate device on interactions</p>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="hapticToggle" class="sr-only peer" checked>
+                <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+              </label>
+            </div>
+          </div>
+
+          <h2>Account</h2>
+          <div class="card glass-card mb-6">
+            <div class="flex items-center gap-4 mb-6">
+               <div class="w-12 h-12 bg-emerald-500/20 rounded-full flex items-center justify-center">
+                 <i data-lucide="user" class="text-emerald-400"></i>
+               </div>
+               <div>
+                 <p class="text-sm font-bold truncate max-w-[180px]" id="profileEmail">user@example.com</p>
+                 <p class="text-xs text-slate-400">Synced via Supabase</p>
+               </div>
+            </div>
+            <button id="btnLogout" class="btn secondary-btn border-[#ef4444]/20 text-[#ef4444] hover:bg-[#ef4444]/5 flex gap-2">
+               <i data-lucide="log-out" class="w-4 h-4"></i> Logout
+            </button>
+          </div>
+
           <div class="settings-danger-zone">
             <h3 style="color:#ef4444; font-size:1rem; margin-bottom: 12px; font-weight:600;">Danger Zone</h3>
             <div class="card glass-card" style="border-color: rgba(239, 68, 68, 0.2);">
@@ -287,22 +408,6 @@
           Next <i data-lucide="arrow-right"></i>
         </button>
       </div>
-
-      <!-- BOTTOM NAVIGATION -->
-      <nav class="bottom-nav">
-        <a href="#view-home" class="nav-item active" data-target="view-home">
-          <i data-lucide="home"></i>
-          <span>Home</span>
-        </a>
-        <a href="#view-orders" class="nav-item" data-target="view-orders">
-          <i data-lucide="list-ordered"></i>
-          <span>Orders</span>
-        </a>
-        <a href="#view-settings" class="nav-item" data-target="view-settings">
-          <i data-lucide="settings"></i>
-          <span>Settings</span>
-        </a>
-      </nav>
 
       <!-- Delete Confirmation Modal -->
       <div id="deleteModal" class="modal-overlay hidden">
