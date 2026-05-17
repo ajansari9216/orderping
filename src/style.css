@@ -1241,18 +1241,162 @@ textarea {
 
 /* Bottom nav removed */
 
-/* Toast */
-.toast-container {
+/* Bulk Action Bar */
+.bulk-action-bar {
   position: fixed;
-  bottom: 120px;
+  bottom: 0;
   left: 0;
   right: 0;
+  z-index: 90;
+  background: #0f172a;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 16px 20px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.bulk-info {
   display: flex;
   flex-direction: column;
+  min-width: 60px;
+}
+
+.bulk-count {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--primary);
+  line-height: 1;
+}
+
+.bulk-actions-wrapper {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.bulk-actions-wrapper::-webkit-scrollbar {
+  display: none;
+}
+
+.bulk-btn {
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
   align-items: center;
-  gap: 10px;
-  z-index: 100;
-  pointer-events: none;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.bulk-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.bulk-btn.wa-bulk {
+  background: var(--primary);
+  color: #020617;
+  border-color: transparent;
+}
+
+.bulk-btn.wa-bulk i {
+  width: 14px;
+  height: 14px;
+}
+
+.bulk-close {
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* Card Selection UI */
+.card-selection-area {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  padding: 4px;
+}
+
+.card-checkbox {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.card-checkbox.checked {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #020617;
+}
+
+.bulk-order-card.selected {
+  background: rgba(34, 197, 94, 0.04);
+  border-color: var(--primary);
+  box-shadow: 0 0 15px rgba(34, 197, 94, 0.08);
+}
+
+/* Offset content when selection exists */
+.bulk-order-card .status-badge {
+  margin-left: 24px;
+}
+
+/* Token Buttons */
+.token-btn {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--primary);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.token-btn:hover {
+  background: rgba(34, 197, 94, 0.2);
+  transform: translateY(-1px);
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.modal-overlay {
+  z-index: 150 !important; /* Above everything */
+}
+
+.toast-container {
+  z-index: 250 !important; /* Above modals */
 }
 
 .toast {

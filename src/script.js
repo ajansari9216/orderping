@@ -1,4 +1,5 @@
 import { supabase } from './supabase.js';
+import Papa from 'papaparse';
 
 // --- DOM Elements ---
 const views = document.querySelectorAll('.view');
@@ -29,21 +30,51 @@ const dropdownItems = document.querySelectorAll('.dropdown-item');
 // ... (keep search elements as they were or just use document.getElementById)
 const searchResults = document.getElementById('searchResults');
 
+// Order Modal elements
+const orderModal = document.getElementById('orderModal');
+const orderForm = document.getElementById('orderForm');
+const btnAddOrder = document.getElementById('btnAddOrder');
+const btnCancelOrder = document.getElementById('btnCancelOrder');
+const btnCloseOrderModal = document.getElementById('btnCloseOrderModal');
+const orderModalTitle = document.getElementById('orderModalTitle');
+const editOrderId = document.getElementById('editOrderId');
+
+const orderCustomerName = document.getElementById('orderCustomerName');
+const orderPhone = document.getElementById('orderPhone');
+const orderProduct = document.getElementById('orderProduct');
+const orderAmount = document.getElementById('orderAmount');
+const orderStatus = document.getElementById('orderStatus');
+const orderNotes = document.getElementById('orderNotes');
+
+// CSV Modal elements
+const csvPreviewModal = document.getElementById('csvPreviewModal');
+const csvPreviewHeader = document.getElementById('csvPreviewHeader');
+const csvPreviewBody = document.getElementById('csvPreviewBody');
+const csvImportStats = document.getElementById('csvImportStats');
+const btnConfirmCsvImport = document.getElementById('btnConfirmCsvImport');
+const btnCancelCsvImport = document.getElementById('btnCancelCsvImport');
+const btnCloseCsvPreview = document.getElementById('btnCloseCsvPreview');
+
 // Bulk Upload elements
 const uploadArea = document.getElementById('uploadArea');
 const fileInput = document.getElementById('fileInput');
 
 // Bulk Action elements
 const compactActionBar = document.getElementById('compactActionBar');
-const btnBulkSend = document.getElementById('btnBulkSend');
+const bulkActionBar = document.getElementById('bulkActionBar');
+const bulkCount = document.getElementById('bulkCount');
+const btnClearSelection = document.getElementById('btnClearSelection');
+const btnSelectAll = document.getElementById('btnSelectAll');
 const filterSelect = document.getElementById('filterSelect');
 const exportSelect = document.getElementById('exportSelect');
 
 // --- State ---
 let orders = [];
 let uploads = [];
+let pendingCsvRows = [];
+let pendingCsvFilename = '';
 let activeUploadId = null;
-let currentFilter = 'all';
+let selectedOrdersIds = new Set();
 let currentDeliveryFilter = 'all';
 let currentRiskFilter = 'all';
 let guidedActive = false;
@@ -118,15 +149,16 @@ async function fetchFromSupabase() {
     const { data: ordersData, error: ordersError } = await supabase
       .from('orders')
       .select('*')
-      .eq('user_id', currentUser.id);
+      .eq('user_id', currentUser.id)
+      .order('created_at', { ascending: false });
       
     if (ordersData) {
       orders = ordersData.map(o => ({
         ...o,
         customerName: o.customer_name,
-        phoneNumber: o.phone_number,
-        productName: o.product_name,
-        deliveryStatus: o.delivery_status
+        phoneNumber: o.phone,
+        productName: o.product,
+        status: o.status
       }));
     }
 
@@ -438,7 +470,12 @@ document.querySelector('.forgot-link')?.addEventListener('click', (e) => {
 
 // --- Utils ---
 function updateBulkActionBar() {
-  // No-op for now, simplified view management
+  if (selectedOrdersIds.size > 0) {
+    bulkActionBar.classList.remove('hidden');
+    bulkCount.textContent = selectedOrdersIds.size;
+  } else {
+    bulkActionBar.classList.add('hidden');
+  }
 }
 
 function vibrate(pattern = 50) {
@@ -487,11 +524,12 @@ function generateMessage(order) {
   let template = settings.templates.find(t => t.id === settings.activeTemplateId);
   let msg = template ? template.text : settings.defaultMessage;
   
-  msg = msg.replace(/\[Name\]|\{name\}/gi, String(order.customerName || 'Customer'));
-  msg = msg.replace(/\[Product\]|\{product\}/gi, String(order.productName || 'Product'));
-  msg = msg.replace(/\[Amount\]|\{amount\}|\{price\}/gi, String(order.amount || '0'));
-  msg = msg.replace(/\[Phone\]|\{phone\}/gi, String(order.phoneNumber || ''));
-  msg = msg.replace(/\[Date\]|\{date\}/gi, new Date().toLocaleDateString());
+  // Handle both legacy {name} and new {{name}}
+  msg = msg.replace(/\[Name\]|\{name\}|\{\{name\}\}/gi, String(order.customerName || 'Customer'));
+  msg = msg.replace(/\[Product\]|\{product\}|\{\{product\}\}/gi, String(order.productName || 'Product'));
+  msg = msg.replace(/\[Amount\]|\{amount\}|\{\{amount\}\}|\{price\}|\{\{price\}\}/gi, String(order.amount || '0'));
+  msg = msg.replace(/\[Phone\]|\{phone\}|\{\{phone\}\}/gi, String(order.phoneNumber || ''));
+  msg = msg.replace(/\[Date\]|\{date\}|\{\{date\}\}/gi, new Date().toLocaleDateString());
   return msg;
 }
 
@@ -552,6 +590,11 @@ if (typeof pdfjsLib !== 'undefined') {
 
 async function parseFile(file) {
   try {
+    if (file.name.toLowerCase().endsWith('.csv')) {
+      handleCsvFile(file);
+      return;
+    }
+
     showToast('Parsing file...', 'loader-2');
     let res = null;
     
@@ -561,71 +604,177 @@ async function parseFile(file) {
       res = await parseExcelCSV(file);
     }
     
-    const { extracted, invalidCount } = res;
-    
-    // Create new upload entry
-    const newUploadId = 'up_' + Date.now();
-    
-    const unique = [];
-    const seenPhones = new Set();
-    let dupCount = 0;
-    
-    extracted.forEach(o => {
-      // Very basic dedup within the file
-      if (!seenPhones.has(o.phoneNumber)) {
-        seenPhones.add(o.phoneNumber);
-        o.uploadId = newUploadId;
-        unique.push(o);
-      } else {
-        dupCount++;
-      }
-    });
+    processImportedData(res.extracted, res.invalidCount, file.name);
+  } catch (err) {
+    console.error('Parse error:', err);
+    showToast('Failed to parse file', 'alert-circle');
+  }
+}
 
-    if (unique.length > 0) {
-      const newUpload = {
-        id: newUploadId,
-        filename: file.name,
-        total: unique.length,
-        timestamp: new Date().toISOString()
-      };
+async function handleCsvFile(file) {
+  pendingCsvFilename = file.name;
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    complete: function(results) {
+      const data = results.data;
+      const headers = results.meta.fields;
       
-      uploads.unshift(newUpload);
-      activeUploadId = newUploadId;
-      orders = [...unique, ...orders];
+      // Auto-detect columns
+      const mapping = detectColumns(headers);
       
-      if (currentUser) {
-        // Save to Supabase
-        await supabase.from('uploads').insert({
-          id: newUploadId,
-          user_id: currentUser.id,
-          filename: file.name,
-          total: unique.length,
-          timestamp: newUpload.timestamp
-        });
+      const seenInCsv = new Set();
+      let csvDupCount = 0;
+
+      pendingCsvRows = data.map(row => {
+        const name = row[mapping.name] || '';
+        const phoneRaw = row[mapping.phone] || '';
+        const product = row[mapping.product] || 'Order Item';
+        const amountRaw = row[mapping.amount] || '0';
         
-        await supabase.from('orders').insert(unique.map(o => ({
-          id: o.id,
-          user_id: currentUser.id,
-          upload_id: newUploadId,
-          customer_name: o.customerName,
-          phone_number: o.phoneNumber,
-          product_name: o.productName,
-          amount: o.amount,
-          status: o.status,
-          delivery_status: o.deliveryStatus,
-          notes: o.notes,
-          timestamp: o.timestamp
-        })));
-      }
-      
-      saveOrders();
-      showToast(`Added ${unique.length} new orders!`, 'check-circle-2');
-      vibrate(50);
-      switchView('view-orders'); // Move to dashboard on successful upload
+        const phone = isValidIndianPhone(phoneRaw);
+        const amount = isValidAmount(amountRaw);
+        
+        let isDuplicate = false;
+        if (phone) {
+          if (seenInCsv.has(phone)) {
+            isDuplicate = true;
+            csvDupCount++;
+          }
+          seenInCsv.add(phone);
+        }
+
+        return {
+          id: 'ord_' + Math.random().toString(36).substr(2, 9),
+          customerName: name,
+          phoneNumber: phone,
+          productName: product,
+          amount: amount,
+          status: 'Pending',
+          notes: '',
+          isValid: !!(name && phone && amount),
+          isDuplicate: isDuplicate
+        };
+      });
+
+      renderCsvPreview(headers, data, mapping, csvDupCount);
+      csvPreviewModal.classList.remove('hidden');
+    }
+  });
+}
+
+function detectColumns(headers) {
+  const mapping = { name: '', phone: '', product: '', amount: '' };
+  
+  headers.forEach(h => {
+    const low = h.toLowerCase();
+    if (low.includes('name') || low.includes('customer')) mapping.name = h;
+    if (low.includes('phone') || low.includes('mobile') || low.includes('contact')) mapping.phone = h;
+    if (low.includes('product') || low.includes('item')) mapping.product = h;
+    if (low.includes('amount') || low.includes('price') || low.includes('total')) mapping.amount = h;
+  });
+
+  // Fallbacks by index if not found
+  if (!mapping.name) mapping.name = headers[0];
+  if (!mapping.phone) mapping.phone = headers[1];
+  if (!mapping.product) mapping.product = headers[2];
+  if (!mapping.amount) mapping.amount = headers[3];
+
+  return mapping;
+}
+
+function renderCsvPreview(headers, data, mapping, csvDupCount) {
+  // Render Header
+  csvPreviewHeader.innerHTML = headers.map(h => `
+    <th class="px-4 py-3 text-xs font-semibold text-slate-400 border-b border-white/5 uppercase sticky top-0 bg-[#0f172a]">
+      <div class="flex items-center gap-2">
+        ${h}
+        ${Object.values(mapping).includes(h) ? '<span class="text-emerald-400">✓</span>' : ''}
+      </div>
+    </th>
+  `).join('');
+
+  // Render Body (top 100 rows)
+  csvPreviewBody.innerHTML = pendingCsvRows.slice(0, 100).map((pRow, idx) => {
+    const rawRow = data[idx];
+    return `
+      <tr class="hover:bg-white/5 transition-colors ${pRow.isDuplicate ? 'opacity-50 grayscale bg-red-500/5' : ''}">
+        ${headers.map(h => `
+          <td class="px-4 py-3 text-sm text-slate-300 truncate max-w-[150px]">
+            ${rawRow[h] || '-'}
+            ${mapping.phone === h && pRow.isDuplicate ? '<span class="ml-2 text-[10px] text-red-500 font-bold">DUP</span>' : ''}
+          </td>
+        `).join('')}
+      </tr>
+    `;
+  }).join('');
+
+  const validCount = pendingCsvRows.filter(r => r.phoneNumber && !r.isDuplicate).length;
+  let statsText = `Found ${data.length} rows. ${validCount} new valid orders detected.`;
+  if (csvDupCount > 0) statsText += ` <span class="text-amber-400">(${csvDupCount} duplicates in file skipped)</span>`;
+  
+  csvImportStats.innerHTML = statsText;
+}
+
+async function processImportedData(extracted, invalidCount, filename) {
+  const newUploadId = 'up_' + Date.now();
+  const unique = [];
+  const seenPhones = new Set();
+  
+  // Also track phones already in existing orders
+  orders.forEach(o => seenPhones.add(o.phoneNumber));
+  
+  let dupCount = 0;
+  
+  extracted.forEach(o => {
+    if (!seenPhones.has(o.phoneNumber)) {
+      seenPhones.add(o.phoneNumber);
+      o.uploadId = newUploadId;
+      unique.push(o);
     } else {
-      showToast('No valid new orders found in file.', 'x');
+      dupCount++;
+    }
+  });
+
+  if (unique.length > 0) {
+    const newUpload = {
+      id: newUploadId,
+      filename: filename,
+      total: unique.length,
+      timestamp: new Date().toISOString()
+    };
+    
+    uploads.unshift(newUpload);
+    activeUploadId = newUploadId;
+    orders = [...unique, ...orders];
+    
+    if (currentUser) {
+      await supabase.from('uploads').insert({
+        id: newUploadId,
+        user_id: currentUser.id,
+        filename: filename,
+        total: unique.length,
+        timestamp: newUpload.timestamp
+      });
+      
+      await supabase.from('orders').insert(unique.map(o => ({
+        id: o.id,
+        user_id: currentUser.id,
+        upload_id: newUploadId,
+        customer_name: o.customerName,
+        phone: o.phoneNumber,
+        product: o.productName,
+        amount: o.amount,
+        status: o.status,
+        notes: o.notes
+      })));
     }
     
+    saveOrders();
+    showToast(`Successfully imported ${unique.length} orders!`, 'check-circle-2');
+    vibrate(50);
+    switchView('view-orders');
+
     if (dupCount > 0) {
       setTimeout(() => {
         showToast(`${dupCount} duplicate rows in file removed`, 'info');
@@ -637,12 +786,8 @@ async function parseFile(file) {
         showToast(`${invalidCount} invalid rows skipped`, 'info');
       }, 4500);
     }
-
-  } catch (err) {
-    console.error(err);
-    showToast('Error parsing file', 'alert-circle');
-  } finally {
-    fileInput.value = ''; // Reset
+  } else {
+    showToast('No valid new orders found.', 'alert-circle');
   }
 }
 
@@ -689,8 +834,7 @@ async function parseExcelCSV(file) {
             phoneNumber: phone,
             productName: productRaw,
             amount: price,
-            status: 'pending',
-            deliveryStatus: 'Pending',
+            status: 'Pending',
             notes: '',
             timestamp: new Date().toISOString()
           });
@@ -750,8 +894,7 @@ async function parsePDF(file) {
              phoneNumber: phone,
              productName: 'Ordered item',
              amount: price,
-             status: 'pending',
-             deliveryStatus: 'Pending',
+             status: 'Pending',
              notes: '',
              timestamp: new Date().toISOString()
           });
@@ -825,10 +968,10 @@ function renderOrders() {
   // Update Stats
   if (statTotal) statTotal.textContent = activeOrders.length;
   if (statPending) {
-    statPending.textContent = activeOrders.filter(o => o.deliveryStatus === 'Pending').length;
+    statPending.textContent = activeOrders.filter(o => o.status === 'Pending').length;
   }
   if (statConfirmed) {
-    statConfirmed.textContent = activeOrders.filter(o => o.deliveryStatus === 'Confirmed').length;
+    statConfirmed.textContent = activeOrders.filter(o => o.status === 'Confirmed').length;
   }
   if (statRisk) {
     statRisk.textContent = activeOrders.filter(o => evalRisk(o).level === 'high').length;
@@ -841,8 +984,9 @@ function renderOrders() {
   const q = document.getElementById('smartSearchInput')?.value.toLowerCase() || '';
 
   const filtered = activeOrders.filter(o => {
-    if (waFilter !== 'all' && o.status !== waFilter) return false;
-    if (deliveryFilter !== 'all' && o.deliveryStatus !== deliveryFilter) return false;
+    // Note: status filter might be 'Pending', 'Confirmed' etc from deliveryFilter
+    if (waFilter !== 'all' && o.status !== waFilter) return false; 
+    if (deliveryFilter !== 'all' && o.status !== deliveryFilter) return false;
     if (riskFilter !== 'all') {
       const riskLevel = evalRisk(o).level;
       if (riskLevel !== riskFilter) return false;
@@ -870,8 +1014,15 @@ function renderOrders() {
   bulkOrdersList.innerHTML = filtered.map(order => {
     const risk = evalRisk(order);
     const hasNotes = !!order.notes;
+    const isSelected = selectedOrdersIds.has(order.id);
     return `
-    <div class="bulk-order-card ${order.status}" data-id="${order.id}">
+    <div class="bulk-order-card ${order.status} ${isSelected ? 'selected' : ''}" data-id="${order.id}">
+      <div class="card-selection-area" onclick="event.stopPropagation(); toggleSelection('${order.id}')">
+        <div class="card-checkbox ${isSelected ? 'checked' : ''}">
+          <i data-lucide="check" class="w-3 h-3 ${isSelected ? '' : 'hidden'}"></i>
+        </div>
+      </div>
+
       <div class="card-top-badges">
         <div class="status-badge ${order.status}">${order.status}</div>
         <div class="risk-badge risk-${risk.level}">${risk.label}</div>
@@ -883,6 +1034,9 @@ function renderOrders() {
           <p class="customer-phone" style="font-family:monospace">${order.phoneNumber}</p>
         </div>
         <div style="display:flex;gap:8px;">
+          <button class="icon-action-btn" onclick="editOrder('${order.id}')">
+            <i data-lucide="edit-3"></i>
+          </button>
           <button class="icon-action-btn ${hasNotes ? 'bg-blue-500/20 text-blue-400' : ''}" onclick="toggleNotes('${order.id}')">
             <i data-lucide="file-edit"></i>
           </button>
@@ -902,12 +1056,11 @@ function renderOrders() {
           <label>Delivery Status</label>
           <div class="delivery-select-wrap mt-1">
             <select class="delivery-select" onchange="updateDeliveryStatus('${order.id}', this.value)">
-              <option value="Pending" ${order.deliveryStatus === 'Pending' ? 'selected' : ''}>Pending</option>
-              <option value="Confirmed" ${order.deliveryStatus === 'Confirmed' ? 'selected' : ''}>Confirmed</option>
-              <option value="Packed" ${order.deliveryStatus === 'Packed' ? 'selected' : ''}>Packed</option>
-              <option value="Shipped" ${order.deliveryStatus === 'Shipped' ? 'selected' : ''}>Shipped</option>
-              <option value="Delivered" ${order.deliveryStatus === 'Delivered' ? 'selected' : ''}>Delivered</option>
-              <option value="Cancelled" ${order.deliveryStatus === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+              <option value="Pending" ${order.status === 'Pending' ? 'selected' : ''}>Pending</option>
+              <option value="Confirmed" ${order.status === 'Confirmed' ? 'selected' : ''}>Confirmed</option>
+              <option value="Shipped" ${order.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
+              <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
+              <option value="Returned" ${order.status === 'Returned' ? 'selected' : ''}>Returned</option>
             </select>
             <i data-lucide="chevron-down"></i>
           </div>
@@ -937,6 +1090,56 @@ function renderOrders() {
 
 
 // --- Global Actions (attached to window for onclick) ---
+window.toggleSelection = (id) => {
+  if (selectedOrdersIds.has(id)) {
+    selectedOrdersIds.delete(id);
+  } else {
+    selectedOrdersIds.add(id);
+  }
+  vibrate(10);
+  renderOrders();
+  updateBulkActionBar();
+};
+
+window.bulkAction = async (actionType) => {
+  if (selectedOrdersIds.size === 0) return;
+  
+  const selectedList = orders.filter(o => selectedOrdersIds.has(o.id));
+  vibrate(50);
+
+  if (actionType.startsWith('wa-')) {
+    showToast(`Simulating WhatsApp messaging for ${selectedOrdersIds.size} orders...`, 'message-circle');
+    
+    // In a real app, this would iterate and possibly use an API
+    // For simulation, we'll just wait and show success
+    setTimeout(() => {
+      showToast(`Successfully sent ${selectedOrdersIds.size} messages!`, 'check-circle-2');
+      selectedOrdersIds.clear();
+      renderOrders();
+      updateBulkActionBar();
+    }, 1500);
+    return;
+  }
+
+  if (actionType.startsWith('status-')) {
+    const newStatus = actionType.replace('status-', '').charAt(0).toUpperCase() + actionType.replace('status-', '').slice(1);
+    showToast(`Updating status to ${newStatus} for ${selectedOrdersIds.size} orders...`, 'loader-2');
+
+    for (const order of selectedList) {
+      order.status = newStatus;
+      if (currentUser) {
+        await supabase.from('orders').update({ status: newStatus }).eq('id', order.id);
+      }
+    }
+
+    saveOrders(true);
+    showToast(`Updated ${selectedOrdersIds.size} orders!`, 'check');
+    selectedOrdersIds.clear();
+    renderOrders();
+    updateBulkActionBar();
+  }
+};
+
 window.toggleNotes = (id) => {
   const el = document.getElementById(`notes_wrapper_${id}`);
   if (el) {
@@ -966,7 +1169,6 @@ window.saveNotes = async (id, text) => {
         btn.classList.add('bg-blue-500/20', 'text-blue-400');
       } else {
         btn.classList.remove('bg-blue-500/20', 'text-blue-400');
-        document.getElementById(`notes_wrapper_${id}`).classList.add('hidden');
       }
     }
   }
@@ -975,19 +1177,17 @@ window.saveNotes = async (id, text) => {
 window.updateDeliveryStatus = async (id, value) => {
   const order = orders.find(o => o.id === id);
   if (order) {
-    order.deliveryStatus = value;
+    order.status = value;
     saveOrders(true);
     
     if (currentUser) {
-      await supabase.from('orders').update({ delivery_status: value }).eq('id', id);
+      await supabase.from('orders').update({ status: value }).eq('id', id);
     }
     
     showToast(`Status updated to ${value}`, 'check');
     
-    // If it was cancelled, re-render to update the risk badge immediately
-    if (value === 'Cancelled' || order.deliveryStatus === 'Cancelled') {
-       renderOrders();
-    }
+    // Re-render for status updates
+    renderOrders();
   }
 };
 
@@ -1048,33 +1248,34 @@ window.deleteOrder = async (id) => {
 window.toggleStatus = async (id) => {
   const order = orders.find(o => o.id === id);
   if (order) {
-    order.status = order.status === 'confirmed' ? 'pending' : 'confirmed';
+    const newStatus = order.status === 'Confirmed' ? 'Pending' : 'Confirmed';
+    order.status = newStatus;
     saveOrders(true);
     vibrate(30);
     
     if (currentUser) {
-      await supabase.from('orders').update({ status: order.status }).eq('id', id);
+      await supabase.from('orders').update({ status: newStatus }).eq('id', id);
     }
     
-    // Update DOM directly instead of full renderOrders to save performance
-    const card = document.querySelector(`.bulk-order-card[data-id="${id}"]`);
-    if (card) {
-      card.className = `bulk-order-card ${order.status}`;
-      const badge = card.querySelector('.status-badge');
-      if (badge) {
-        badge.className = `status-badge ${order.status}`;
-        badge.textContent = order.status;
-      }
-      const toggleBtn = card.querySelector('.btn-toggle');
-      if (toggleBtn) {
-        if (order.status === 'confirmed') {
-          toggleBtn.classList.add('active');
-        } else {
-          toggleBtn.classList.remove('active');
-        }
-      }
-    }
+    renderOrders();
   }
+};
+
+window.editOrder = (id) => {
+  const order = orders.find(o => o.id === id);
+  if (!order) return;
+  
+  editOrderId.value = order.id;
+  orderCustomerName.value = order.customerName;
+  orderPhone.value = order.phoneNumber;
+  orderProduct.value = order.productName;
+  orderAmount.value = order.amount;
+  orderStatus.value = order.status;
+  orderNotes.value = order.notes || '';
+  
+  orderModalTitle.textContent = 'Edit Order';
+  orderModal.classList.remove('hidden');
+  vibrate(10);
 };
 
 window.sendWA = async (id) => {
@@ -1152,19 +1353,241 @@ exportSelect?.addEventListener('change', (e) => {
   exportSelect.value = "";
 });
 
+btnSelectAll?.addEventListener('click', () => {
+  const activeOrders = orders.filter(o => o.uploadId === activeUploadId);
+  const allSelected = activeOrders.every(o => selectedOrdersIds.has(o.id));
+  
+  if (allSelected) {
+    activeOrders.forEach(o => selectedOrdersIds.delete(o.id));
+  } else {
+    activeOrders.forEach(o => selectedOrdersIds.add(o.id));
+  }
+  
+  vibrate(30);
+  renderOrders();
+  updateBulkActionBar();
+});
+
+btnClearSelection?.addEventListener('click', () => {
+  selectedOrdersIds.clear();
+  vibrate(10);
+  renderOrders();
+  updateBulkActionBar();
+});
+
 // Navigation handled via dropdown items
+
+// Modal listeners
+btnAddOrder?.addEventListener('click', () => {
+  editOrderId.value = '';
+  orderModalTitle.textContent = 'Add New Order';
+  orderForm.reset();
+  orderModal.classList.remove('hidden');
+  vibrate(10);
+});
+
+[btnCancelOrder, btnCloseOrderModal].forEach(btn => {
+  btn?.addEventListener('click', () => {
+    orderModal.classList.add('hidden');
+  });
+});
+
+orderForm?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  const id = editOrderId.value || 'ord_' + Math.random().toString(36).substr(2, 9);
+  const data = {
+    customerName: orderCustomerName.value,
+    phoneNumber: orderPhone.value,
+    productName: orderProduct.value,
+    amount: orderAmount.value,
+    status: orderStatus.value.charAt(0).toUpperCase() + orderStatus.value.slice(1),
+    notes: orderNotes.value
+  };
+
+  try {
+    if (currentUser) {
+      const payload = {
+        id,
+        user_id: currentUser.id,
+        customer_name: data.customerName,
+        phone: data.phoneNumber,
+        product: data.productName,
+        amount: data.amount,
+        status: data.status,
+        notes: data.notes
+      };
+
+      const { error } = await supabase
+        .from('orders')
+        .upsert(payload);
+
+      if (error) throw error;
+    }
+
+    if (editOrderId.value) {
+      const index = orders.findIndex(o => o.id === id);
+      if (index >= 0) orders[index] = { ...orders[index], ...data };
+    } else {
+      orders.unshift({
+        id,
+        uploadId: activeUploadId, // current context
+        ...data,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    orderModal.classList.add('hidden');
+    saveOrders();
+    showToast(editOrderId.value ? 'Order updated' : 'Order added', 'check');
+    vibrate(30);
+  } catch (err) {
+    console.error('Error saving order:', err);
+    showToast('Failed to save order', 'alert-circle');
+  }
+});
+
+btnCloseCsvPreview?.addEventListener('click', () => {
+  csvPreviewModal.classList.add('hidden');
+});
+
+btnCancelCsvImport?.addEventListener('click', () => {
+  csvPreviewModal.classList.add('hidden');
+  pendingCsvRows = [];
+});
+
+btnConfirmCsvImport?.addEventListener('click', async () => {
+  const validRows = pendingCsvRows.filter(r => r.phoneNumber);
+  if (validRows.length > 0) {
+    showToast('Importing orders...', 'loader-2');
+    csvPreviewModal.classList.add('hidden');
+    await processImportedData(validRows, pendingCsvRows.length - validRows.length, pendingCsvFilename);
+    pendingCsvRows = [];
+  } else {
+    showToast('No valid rows to import', 'alert-circle');
+  }
+});
 
 // --- Template & Settings Logic ---
 const templateSelect = document.getElementById('templateSelect');
 const templateIdInput = document.getElementById('templateId');
 const templateNameInput = document.getElementById('templateName');
 const templateTextInput = document.getElementById('templateText');
+const templatesList = document.getElementById('templatesList');
+const templateEditor = document.getElementById('templateEditor');
+const templateForm = document.getElementById('templateForm');
+
+window.insertToken = (token) => {
+  const start = templateTextInput.selectionStart;
+  const end = templateTextInput.selectionEnd;
+  const text = templateTextInput.value;
+  templateTextInput.value = text.substring(0, start) + token + text.substring(end);
+  templateTextInput.focus();
+  templateTextInput.selectionStart = templateTextInput.selectionEnd = start + token.length;
+};
+
+function renderTemplates() {
+  if (!templatesList) return;
+  const s = getSettings();
+  
+  if (s.templates.length === 0) {
+    templatesList.innerHTML = '<div class="empty-state">No templates found.</div>';
+    return;
+  }
+  
+  templatesList.innerHTML = s.templates.map(t => `
+    <div class="card glass-card p-4 cursor-pointer hover:border-emerald-500/30 transition-all ${t.id === s.activeTemplateId ? 'border-emerald-500/50' : ''}" onclick="editTemplate('${t.id}')">
+      <div class="flex items-center justify-between mb-2">
+        <h4 class="font-bold text-white">${t.name}</h4>
+        ${t.id === s.activeTemplateId ? '<span class="badge">ACTIVE</span>' : ''}
+      </div>
+      <p class="text-xs text-slate-400 line-clamp-2">${t.text.replace(/\n/g, ' ')}</p>
+    </div>
+  `).join('');
+}
+
+window.editTemplate = (id) => {
+  const s = getSettings();
+  const t = s.templates.find(x => x.id === id);
+  if (t) {
+    templateIdInput.value = t.id;
+    templateNameInput.value = t.name;
+    templateTextInput.value = t.text;
+    document.getElementById('templateModalTitle').textContent = 'Edit Template';
+    templateEditor.classList.remove('hidden');
+    vibrate(10);
+  }
+};
+
+document.getElementById('btnNewTemplate')?.addEventListener('click', () => {
+  templateIdInput.value = '';
+  templateNameInput.value = '';
+  templateTextInput.value = '';
+  document.getElementById('templateModalTitle').textContent = 'New Template';
+  templateEditor.classList.remove('hidden');
+  vibrate(10);
+});
+
+document.getElementById('btnCloseTemplateModal')?.addEventListener('click', () => {
+  templateEditor.classList.add('hidden');
+});
+
+templateForm?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const s = getSettings();
+  const id = templateIdInput.value || ('tpl_' + Date.now());
+  const index = s.templates.findIndex(t => t.id === id);
+  
+  const tpl = {
+    id,
+    name: templateNameInput.value,
+    text: templateTextInput.value
+  };
+  
+  if (index >= 0) {
+    s.templates[index] = tpl;
+  } else {
+    s.templates.push(tpl);
+  }
+  
+  // If this was the only template or active template id is empty, set it as active
+  if (!s.activeTemplateId) s.activeTemplateId = id;
+  
+  saveSettings(s);
+  renderTemplates();
+  populateTemplateSelect(s);
+  templateEditor.classList.add('hidden');
+  
+  vibrate(30);
+  showToast('Template saved', 'check');
+});
+
+document.getElementById('btnDeleteTemplate')?.addEventListener('click', () => {
+  const id = templateIdInput.value;
+  if (!id) return;
+  
+  const s = getSettings();
+  if (s.templates.length <= 1) {
+    showToast('Cannot delete the last template', 'alert-circle');
+    return;
+  }
+  
+  if (confirm('Delete this template?')) {
+    s.templates = s.templates.filter(t => t.id !== id);
+    if (s.activeTemplateId === id) s.activeTemplateId = s.templates[0].id;
+    saveSettings(s);
+    renderTemplates();
+    populateTemplateSelect(s);
+    templateEditor.classList.add('hidden');
+    showToast('Template deleted', 'trash');
+  }
+});
 
 function initSettings() {
   const s = getSettings();
   if (sellerNameInput) sellerNameInput.value = s.sellerName;
   populateTemplateSelect(s);
-  loadTemplateForm(s.activeTemplateId, s);
+  renderTemplates();
 }
 
 function populateTemplateSelect(s) {
@@ -1172,15 +1595,6 @@ function populateTemplateSelect(s) {
   templateSelect.innerHTML = s.templates.map(t => 
     `<option value="${t.id}" ${t.id === s.activeTemplateId ? 'selected' : ''}>${t.name}</option>`
   ).join('');
-}
-
-function loadTemplateForm(id, s) {
-  const t = s.templates.find(x => x.id === id);
-  if (t) {
-    templateIdInput.value = t.id;
-    templateNameInput.value = t.name;
-    templateTextInput.value = t.text;
-  }
 }
 
 templateSelect?.addEventListener('change', (e) => {

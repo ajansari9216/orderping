@@ -35,10 +35,7 @@
           <a href="#view-orders" class="dropdown-item" data-target="view-orders">
              <i data-lucide="list"></i> Orders
           </a>
-          <a href="#view-home" class="dropdown-item" data-target="view-home">
-             <i data-lucide="upload"></i> Uploads
-          </a>
-          <a href="#view-settings" class="dropdown-item" data-target="view-settings">
+          <a href="#view-templates" class="dropdown-item" data-target="view-templates">
              <i data-lucide="layout"></i> Templates
           </a>
           <a href="#view-settings" class="dropdown-item" data-target="view-settings">
@@ -233,9 +230,22 @@
             </div>
           </div>
 
-          <!-- Smart Search + Filters Drawer -->
-          <div class="dashboard-controls">
-            <!-- Search -->
+            <!-- Smart Search + Filters Drawer -->
+            <div class="dashboard-controls">
+              <!-- Top Action Row -->
+              <div class="flex items-center justify-between mb-3 px-1">
+                <h2 class="text-lg font-bold">Orders</h2>
+                <div class="flex items-center gap-2">
+                  <button id="btnSelectAll" class="action-pill glass-pill py-2 px-3 text-xs flex items-center gap-2">
+                    <i data-lucide="check-square" class="w-3 h-3"></i> <span>Select All</span>
+                  </button>
+                  <button id="btnAddOrder" class="action-pill primary-pill py-2 px-4 shadow-lg shadow-emerald-500/20">
+                    <i data-lucide="plus"></i> <span>Add Order</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Search -->
             <div class="smart-search-wrapper">
               <i data-lucide="search" class="search-icon-sm"></i>
               <input type="text" id="smartSearchInput" placeholder="Search name, phone, product..." class="smart-search-input" />
@@ -267,10 +277,9 @@
                 <option value="all">Delivery</option>
                 <option value="Pending">Pending</option>
                 <option value="Confirmed">Confirmed</option>
-                <option value="Packed">Packed</option>
                 <option value="Shipped">Shipped</option>
                 <option value="Delivered">Delivered</option>
-                <option value="Cancelled">Cancelled</option>
+                <option value="Returned">Returned</option>
               </select>
 
               <select id="riskFilter" class="action-pill glass-pill select-pill">
@@ -312,34 +321,63 @@
           </div>
         </section>
 
-        <!-- SETTINGS & TEMPLATES -->
-        <section id="view-settings" class="view hidden">
-          <h2>Message Templates</h2>
-          <div class="card glass-card mb-6">
-            <div class="current-template-header mb-4">
-              <label for="templateSelect" class="block mb-2 text-sm font-semibold">Active Template</label>
-              <select id="templateSelect" class="w-full bg-[#0f172a] text-white p-3 rounded-xl border border-[#334155]"></select>
+        <!-- TEMPLATES VIEW -->
+        <section id="view-templates" class="view hidden">
+          <div class="header-with-action mb-6">
+            <div>
+              <h2 class="text-2xl font-bold">Message Templates</h2>
+              <p class="text-sm text-slate-400">Manage your WhatsApp message formats</p>
             </div>
-            
-            <form id="templateForm">
-              <div class="form-group">
-                <input type="hidden" id="templateId" />
-                <label for="templateName">Template Name</label>
-                <input type="text" id="templateName" class="w-full bg-[#0f172a] text-white p-3 rounded-xl border border-[#334155] mb-4" placeholder="e.g. Hindi COD" required />
-                
-                <label for="templateText">Message Content</label>
-                <p class="help-text text-xs text-slate-400 mb-2">Variables: {name}, {product}, {amount}</p>
-                <textarea id="templateText" class="w-full bg-[#0f172a] text-white p-3 rounded-xl border border-[#334155] mb-4" rows="6" required></textarea>
-              </div>
-
-              <div class="flex gap-2">
-                <button type="button" id="btnSaveTemplate" class="btn primary-btn flex-1">Save / Update</button>
-                <button type="button" id="btnNewTemplate" class="action-pill secondary-pill px-4">New</button>
-                <button type="button" id="btnDeleteTemplate" class="action-pill danger-pill px-4"><i data-lucide="trash-2"></i></button>
-              </div>
-            </form>
+            <button id="btnNewTemplate" class="action-pill primary-pill">
+              <i data-lucide="plus"></i> <span>New Template</span>
+            </button>
           </div>
 
+          <div class="grid gap-4" id="templatesList">
+            <!-- Templates mapped here -->
+          </div>
+
+          <!-- Template editor (initially hidden or shown on click) -->
+          <div id="templateEditor" class="modal-overlay hidden">
+            <div class="modal-card max-w-md w-full">
+              <div class="flex items-center justify-between mb-6">
+                <h3 id="templateModalTitle" class="text-xl font-bold">Edit Template</h3>
+                <button id="btnCloseTemplateModal" class="text-slate-400 hover:text-white">
+                  <i data-lucide="x"></i>
+                </button>
+              </div>
+
+              <form id="templateForm" class="space-y-4 text-left">
+                <input type="hidden" id="templateId" />
+                
+                <div class="form-group">
+                  <label for="templateName">Template Name</label>
+                  <input type="text" id="templateName" class="w-full bg-[#0f172a] text-white p-3 rounded-xl border border-[#334155]" placeholder="e.g. COD Confirmation" required />
+                </div>
+
+                <div class="form-group">
+                  <label for="templateText">Message Content</label>
+                  <div class="flex flex-wrap gap-2 mb-3">
+                    <button type="button" class="token-btn" onclick="insertToken('{{name}}')">{{name}}</button>
+                    <button type="button" class="token-btn" onclick="insertToken('{{product}}')">{{product}}</button>
+                    <button type="button" class="token-btn" onclick="insertToken('{{amount}}')">{{amount}}</button>
+                  </div>
+                  <textarea id="templateText" class="w-full bg-[#0f172a] text-white p-3 rounded-xl border border-[#334155] min-h-[160px]" placeholder="Type your message..." required></textarea>
+                </div>
+
+                <div class="flex gap-3 pt-2">
+                  <button type="button" id="btnDeleteTemplate" class="btn secondary-btn border-red-500/20 text-red-400 flex-none px-4">
+                    <i data-lucide="trash-2"></i>
+                  </button>
+                  <button type="submit" class="btn primary-btn flex-1">Save Template</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- SETTINGS VIEW -->
+        <section id="view-settings" class="view hidden">
           <h2>Store Settings</h2>
           <div class="card glass-card mb-6">
             <form id="settingsForm">
@@ -350,6 +388,14 @@
                   <input type="text" id="sellerName" placeholder="My Store" />
                 </div>
               </div>
+
+              <div class="form-group mt-4">
+                <label for="templateSelect">Default Bulk Template</label>
+                <select id="templateSelect" class="w-full bg-[#0f172a] text-white p-3 rounded-xl border border-[#334155]">
+                  <!-- Injected by JS -->
+                </select>
+              </div>
+              
               <button type="submit" class="btn primary-btn mt-4 w-full">Save Store Settings</button>
             </form>
           </div>
@@ -396,6 +442,31 @@
         </section>
       </main>
 
+      <!-- BULK ACTION BAR -->
+      <div id="bulkActionBar" class="bulk-action-bar hidden">
+        <div class="bulk-info">
+          <span id="bulkCount" class="bulk-count">0</span>
+          <span class="text-xs text-slate-400">selected</span>
+        </div>
+        <div class="bulk-actions-wrapper no-scrollbar">
+          <button class="bulk-btn wa-bulk" onclick="bulkAction('wa-confirm')">
+            <i data-lucide="message-circle"></i> Confirm WA
+          </button>
+          <button class="bulk-btn wa-bulk" onclick="bulkAction('wa-update')">
+            <i data-lucide="truck"></i> Delivery WA
+          </button>
+          <button class="bulk-btn" onclick="bulkAction('status-confirmed')">
+            Mark Confirmed
+          </button>
+          <button class="bulk-btn" onclick="bulkAction('status-shipped')">
+            Mark Shipped
+          </button>
+        </div>
+        <button id="btnClearSelection" class="bulk-close">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+
       <!-- Guided Workflow Bottom Actions -->
       <div id="guidedBottomBar" class="guided-bottom-bar hidden">
         <button id="btnGuidedPrev" class="guided-action-btn secondary">
@@ -420,6 +491,109 @@
           <div style="display:flex;gap:12px">
             <button id="btnCancelDelete" class="btn secondary-btn" style="flex:1">Cancel</button>
             <button id="btnConfirmDelete" class="btn danger-btn" style="flex:1">Delete All</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ADD/EDIT ORDER MODAL -->
+      <div id="orderModal" class="modal-overlay hidden">
+        <div class="modal-card max-w-md">
+          <div class="flex items-center justify-between mb-6">
+            <h3 id="orderModalTitle" class="text-xl font-bold">Add New Order</h3>
+            <button id="btnCloseOrderModal" class="text-slate-400 hover:text-white">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          
+          <form id="orderForm" class="space-y-4">
+            <input type="hidden" id="editOrderId" />
+            
+            <div class="form-group">
+              <label for="orderCustomerName">Customer Name</label>
+              <div class="input-wrapper">
+                <i data-lucide="user"></i>
+                <input type="text" id="orderCustomerName" placeholder="Full Name" required />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="orderPhone">Phone Number</label>
+              <div class="input-wrapper">
+                <i data-lucide="phone"></i>
+                <input type="tel" id="orderPhone" placeholder="10-digit number" required />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <div class="form-group">
+                <label for="orderProduct">Product</label>
+                <div class="input-wrapper">
+                  <i data-lucide="package"></i>
+                  <input type="text" id="orderProduct" placeholder="Product name" required />
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="orderAmount">Amount (₹)</label>
+                <div class="input-wrapper">
+                  <span class="ml-3 text-slate-400">₹</span>
+                  <input type="number" id="orderAmount" placeholder="0.00" required />
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="orderStatus">Status</label>
+              <select id="orderStatus" class="w-full bg-[#0f172a] text-white p-3 rounded-xl border border-[#334155]">
+                <option value="Pending">Pending</option>
+                <option value="Confirmed">Confirmed</option>
+                <option value="Shipped">Shipped</option>
+                <option value="Delivered">Delivered</option>
+                <option value="Returned">Returned</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="orderNotes">Notes</label>
+              <textarea id="orderNotes" class="w-full bg-[#0f172a] text-white p-3 rounded-xl border border-[#334155]" rows="3" placeholder="Optional notes..."></textarea>
+            </div>
+
+            <div class="flex gap-3 pt-2">
+              <button type="button" id="btnCancelOrder" class="btn secondary-btn flex-1">Cancel</button>
+              <button type="submit" class="btn primary-btn flex-1">Save Order</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- CSV PREVIEW MODAL -->
+      <div id="csvPreviewModal" class="modal-overlay hidden">
+        <div class="modal-card max-w-4xl w-[95vw]">
+          <div class="flex items-center justify-between mb-6">
+            <h3 class="text-xl font-bold">Import CSV Preview</h3>
+            <button id="btnCloseCsvPreview" class="text-slate-400 hover:text-white">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          
+          <div class="overflow-x-auto mb-6 max-h-[60vh] rounded-xl border border-white/10 no-scrollbar">
+            <table class="w-full text-left border-collapse">
+              <thead class="bg-white/5 sticky top-0">
+                <tr id="csvPreviewHeader">
+                  <!-- Header cells injected by JS -->
+                </tr>
+              </thead>
+              <tbody id="csvPreviewBody" class="divide-y divide-white/5">
+                <!-- Rows injected by JS -->
+              </tbody>
+            </table>
+          </div>
+
+          <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <p id="csvImportStats" class="text-sm text-slate-400">Detecting 0 rows...</p>
+            <div class="flex gap-3 w-full sm:w-auto">
+              <button id="btnCancelCsvImport" class="btn secondary-btn flex-1 sm:flex-none px-8">Cancel</button>
+              <button id="btnConfirmCsvImport" class="btn primary-btn flex-1 sm:flex-none px-8">Import All</button>
+            </div>
           </div>
         </div>
       </div>
