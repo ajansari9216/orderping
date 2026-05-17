@@ -215,31 +215,50 @@ function saveSettings(settings) {
 
 // --- Auth Logic ---
 
-// Forgot password handler
-document.querySelector('a[href="#"]')?.addEventListener('click', (e) => {
-  if (e.target.textContent === 'Forgot password?') {
-    e.preventDefault();
-    showToast('Password recovery sent!', 'mail');
+// Sync UI with hash
+function handleHashChange() {
+  const hash = window.location.hash || '#view-home';
+  const targetId = hash.replace('#', '');
+  
+  if (currentUser) {
+    if (targetId === 'view-auth') {
+      window.location.hash = '#view-home';
+      return;
+    }
+    switchView(targetId);
+  } else {
+    switchView('view-auth');
   }
-});
+}
+
+window.addEventListener('hashchange', handleHashChange);
 
 async function updateAuthState(user) {
+  console.log('Auth state update. User:', user ? user.email : 'None');
   currentUser = user;
+  
+  // Update UI elements
+  if (profileEmail) profileEmail.textContent = user ? user.email : 'Not logged in';
+  if (menuUserEmail) menuUserEmail.textContent = user ? user.email : 'Not logged in';
+
   if (user) {
     document.body.classList.remove('auth-mode');
-    if (profileEmail) profileEmail.textContent = user.email;
-    if (menuUserEmail) menuUserEmail.textContent = user.email;
     
-    // Switch to home if currently on auth view
-    const currentActiveView = document.querySelector('.view.active');
-    if (!currentActiveView || currentActiveView.id === 'view-auth') {
-      switchView('view-home');
+    // Redirect if on auth page
+    const currentHash = window.location.hash;
+    if (!currentHash || currentHash === '#view-auth' || currentHash === '#') {
+      console.log('Already logged in, redirecting to home...');
+      window.location.hash = '#view-home';
+    } else {
+      handleHashChange();
     }
     
     // Sync data
     await fetchFromSupabase();
   } else {
+    console.log('No active session. Forcing auth view.');
     document.body.classList.add('auth-mode');
+    window.location.hash = '#view-auth';
     switchView('view-auth');
     
     // Clear state
@@ -250,18 +269,27 @@ async function updateAuthState(user) {
   }
 }
 
-// Check initial session
-supabase.auth.getSession().then(({ data: { session } }) => {
-  if (session) {
-    updateAuthState(session.user);
-  } else {
+// Initial check
+async function initAuth() {
+  console.log('Initializing Auth...');
+  try {
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    
+    console.log('Initial session check:', session ? 'Session found' : 'No session');
+    updateAuthState(session?.user || null);
+  } catch (err) {
+    console.error('Auth initialization error:', err);
     updateAuthState(null);
   }
-});
+}
 
 // Listen for auth changes
-supabase.auth.onAuthStateChange((_event, session) => {
-  updateAuthState(session?.user || null);
+supabase.auth.onAuthStateChange((event, session) => {
+  console.log('Auth status change event:', event);
+  if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED' || event === 'INITIAL_SESSION') {
+    updateAuthState(session?.user || null);
+  }
 });
 
 btnLogout?.addEventListener('click', async () => handleLogout());
@@ -281,72 +309,131 @@ async function handleLogout() {
 // Dropdown Toggle
 menuBtn?.addEventListener('click', (e) => {
   e.stopPropagation();
-  navDropdown.classList.toggle('hidden');
+  navDropdown?.classList.toggle('hidden');
   vibrate(10);
 });
 
-document.addEventListener('click', () => {
-  if (navDropdown) navDropdown.classList.add('hidden');
+document.addEventListener('click', (e) => {
+  if (navDropdown && !navDropdown.contains(e.target) && !menuBtn.contains(e.target)) {
+    navDropdown.classList.add('hidden');
+  }
 });
 
 dropdownItems.forEach(item => {
-  item.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    switchView(e.currentTarget.dataset.target);
-    vibrate(20);
-  });
+  const target = item.getAttribute('data-target');
+  if (target) {
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      switchView(target);
+      vibrate(20);
+      if (navDropdown) navDropdown.classList.add('hidden');
+    });
+  }
 });
 
 btnSwitchAuth?.addEventListener('click', () => {
   isSignUp = !isSignUp;
-  authTitle.textContent = isSignUp ? 'Get Started Now' : 'Manage COD Orders Faster';
-  authSubtitle.textContent = isSignUp ? 'Sync your orders across devices' : 'Secure seller dashboard';
-  btnAuthSubmit.querySelector('span').textContent = isSignUp ? 'Sign Up' : 'Login';
-  btnSwitchAuth.textContent = isSignUp ? 'Already have an account? Login' : 'Create Account';
-  vibrate(15);
+  vibrate(20);
+  
+  // Animate transition slightly
+  if (authForm) {
+    authForm.style.opacity = '0';
+    authForm.style.transform = 'translateY(5px)';
+    
+    setTimeout(() => {
+      authTitle.textContent = isSignUp ? 'Get Started Now' : 'Manage COD Orders Faster';
+      authSubtitle.textContent = isSignUp ? 'Sync your orders across devices' : 'Secure seller dashboard';
+      btnAuthSubmit.querySelector('span').textContent = isSignUp ? 'Sign Up' : 'Login';
+      btnSwitchAuth.textContent = isSignUp ? 'Already have an account? Login' : 'Create Account';
+      
+      authForm.style.opacity = '1';
+      authForm.style.transform = 'translateY(0)';
+    }, 150);
+  }
 });
 
 authForm?.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const email = authEmail.value;
+  const email = authEmail.value.trim();
   const password = authPassword.value;
+  
+  if (!email || !password) {
+    showToast('Please enter both email and password', 'alert-circle');
+    return;
+  }
+  
+  console.log(`Starting ${isSignUp ? 'signup' : 'login'} process for: ${email}`);
   
   // Show loading
   if (authFormSection) authFormSection.classList.add('hidden');
   if (authLoadingState) authLoadingState.classList.remove('hidden');
 
   try {
-    let result;
+    let response;
     if (isSignUp) {
-      result = await supabase.auth.signUp({ email, password });
+      response = await supabase.auth.signUp({ 
+        email, 
+        password,
+        options: {
+          emailRedirectTo: window.location.origin
+        }
+      });
     } else {
-      result = await supabase.auth.signInWithPassword({ email, password });
+      console.log('Attempting sign-in with password...');
+      response = await supabase.auth.signInWithPassword({ email, password });
     }
     
-    const { data, error } = result;
+    const { data, error } = response;
+    console.log('Auth response received:', { data, error });
     
     if (error) {
+      console.error('Auth error returned from Supabase:', error.message);
       showToast(error.message, 'alert-circle');
-      // Revert loading
+      
+      // Re-enable form
       if (authFormSection) authFormSection.classList.remove('hidden');
       if (authLoadingState) authLoadingState.classList.add('hidden');
     } else {
+      console.log('Auth success:', isSignUp ? 'Signup' : 'Login');
+      
       if (isSignUp && !data.session) {
-        showToast('Success! Please verify your email', 'mail');
-        // Stay on auth page but maybe show a success message
+        showToast('Verification email sent! Check your inbox.', 'mail');
+        // Reset view for login
+        isSignUp = false;
+        if (authForm) {
+          authTitle.textContent = 'Verify Your Email';
+          authSubtitle.textContent = 'Check your inbox for a confirmation link';
+          btnAuthSubmit.querySelector('span').textContent = 'Login';
+          btnSwitchAuth.textContent = 'Create Account';
+        }
         if (authFormSection) authFormSection.classList.remove('hidden');
         if (authLoadingState) authLoadingState.classList.add('hidden');
       } else {
-        showToast(isSignUp ? 'Account created successfully!' : 'Welcome back!', 'check-circle-2');
-        // updateAuthState will handle the view switch on session change
+        const welcomeMsg = isSignUp ? 'Account created! Welcome.' : 'Welcome back!';
+        showToast(welcomeMsg, 'check-circle-2');
+        
+        // Session change listener will ideally handle the state update,
+        // but let's be proactive if needed.
+        if (data.session) {
+          await updateAuthState(data.session.user);
+        }
       }
     }
   } catch (err) {
-    showToast('Authentication failed. Please try again.', 'alert-circle');
+    console.error('Caught exception during auth:', err);
+    showToast('Authentication error. See console.', 'alert-circle');
+    
+    // Always clear loading
     if (authFormSection) authFormSection.classList.remove('hidden');
     if (authLoadingState) authLoadingState.classList.add('hidden');
   }
+});
+
+// Forgot password link
+document.querySelector('.forgot-link')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  showToast('Password reset is coming soon.', 'info');
 });
 
 // --- Utils ---
@@ -1173,7 +1260,7 @@ settingsForm?.addEventListener('submit', (e) => {
 
 // INIT
 initSettings();
-loadOrders();
+initAuth();
 
 // Settings extra listeners
 const hapticToggle = document.getElementById('hapticToggle');

@@ -145,6 +145,10 @@ html {
   padding: 20px;
 }
 
+.hidden {
+  display: none !important;
+}
+
 /* Main Content */
 #main-content {
   flex: 1;
@@ -1420,67 +1424,93 @@ body.auth-mode {
   position: absolute;
   top: 70px;
   right: 20px;
-  width: 220px;
-  background: #0d1324;
+  width: 200px;
+  background: #0b0f1a;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5);
+  border-radius: 14px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
   z-index: 100;
   overflow: hidden;
   animation: slideDownMenu 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(10px);
 }
 
 @keyframes slideDownMenu {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .dropdown-header {
-  padding: 16px;
+  padding: 16px 16px 12px;
 }
 
 .dropdown-divider {
   height: 1px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+  margin: 4px 0;
 }
 
 .dropdown-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 20px;
-  color: #94a3b8;
+  gap: 10px;
+  padding: 10px 16px;
+  color: rgba(255, 255, 255, 0.95);
   text-decoration: none;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   font-weight: 500;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   width: 100%;
   text-align: left;
+  border: none;
+  background: transparent;
+  cursor: pointer;
 }
 
 .dropdown-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
 }
 
 .dropdown-item i {
-  width: 18px;
-  height: 18px;
-  opacity: 0.7;
+  width: 16px;
+  height: 16px;
+  opacity: 0.9;
+  color: #ffffff;
 }
 
 .dropdown-item.active {
-  color: var(--primary);
-  background: rgba(34, 197, 94, 0.05);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
 }
 
-.nav-dropdown.hidden {
-  display: none;
+/* Auth State UI Helpers */
+body.auth-mode .hidden-unauth {
+  display: none !important;
 }
 
-body.auth-mode #main-content {
-  padding-top: 0;
-  padding-bottom: 0;
+body:not(.auth-mode) #view-auth {
+  display: none !important;
+}
+
+.premium-loader {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(34, 197, 94, 0.2);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loader-text {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 /* Premium SaaS Auth Page Styles */
