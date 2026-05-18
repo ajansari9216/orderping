@@ -67,12 +67,44 @@ const btnClearSelection = document.getElementById('btnClearSelection');
 const btnSelectAll = document.getElementById('btnSelectAll');
 const filterSelect = document.getElementById('filterSelect');
 const exportSelect = document.getElementById('exportSelect');
+const btnRefreshRisk = document.getElementById('btnRefreshRisk');
+const riskIntelligenceBody = document.getElementById('riskIntelligenceBody');
+const riskIntelligenceEmpty = document.getElementById('riskIntelligenceEmpty');
+const topSuspiciousList = document.getElementById('topSuspiciousList');
+const deliveryHealthRate = document.getElementById('deliveryHealthRate');
+const deliveryHealthFill = document.getElementById('deliveryHealthFill');
+const alertCount = document.getElementById('alertCount');
+const riskStatHigh = document.getElementById('riskStatHigh');
+const riskStatMedium = document.getElementById('riskStatMedium');
+const riskStatTotal = document.getElementById('riskStatTotal');
+const riskStatLow = document.getElementById('riskStatLow');
+
+// Column Mapping elements
+const columnMappingModal = document.getElementById('columnMappingModal');
+const mappingFieldsContainer = document.getElementById('mappingFieldsContainer');
+const btnProceedToPreview = document.getElementById('btnProceedToPreview');
+const btnCancelMapping = document.getElementById('btnCancelMapping');
+const btnCloseMapping = document.getElementById('btnCloseMapping');
+
+// Analytics elements
+const statAvgSuccess = document.getElementById('statAvgSuccess');
+const statAvgRTO = document.getElementById('statAvgRTO');
+const statTotalRevenue = document.getElementById('statTotalRevenue');
+const statDeliveredCount = document.getElementById('statDeliveredCount');
+const cityStatsList = document.getElementById('cityStatsList');
+const riskCircleHigh = document.getElementById('riskCircleHigh');
+const riskCircleMedium = document.getElementById('riskCircleMedium');
+const riskCircleLow = document.getElementById('riskCircleLow');
+const riskTotalCountCenter = document.getElementById('riskTotalCountCenter');
 
 // --- State ---
 let orders = [];
 let uploads = [];
 let pendingCsvRows = [];
+let pendingCsvRawData = [];
+let pendingCsvHeaders = [];
 let pendingCsvFilename = '';
+let currentMapping = {};
 let activeUploadId = null;
 let selectedOrdersIds = new Set();
 let currentDeliveryFilter = 'all';
@@ -81,6 +113,7 @@ let guidedActive = false;
 let guidedIndex = parseInt(localStorage.getItem('orderPing_guidedIndex')) || 0;
 let currentUser = null;
 let isSignUp = false;
+let riskIntelligence = {}; // { phone: { risk: 'low'|'medium'|'high', reasons: [], fails: 0, total: 0 } }
 
 // --- Database Keys (Legacy LocalStorage support) ---
 const DB_UPLOADS_KEY = 'orderping_uploads';
@@ -533,24 +566,241 @@ function generateMessage(order) {
   return msg;
 }
 
-// --- Risk Evaluation ---
-function evalRisk(order) {
-  const allPhones = orders.filter(o => o.phoneNumber === order.phoneNumber);
-  
-  if (parseFloat(order.amount) >= 5000) {
-    return { level: 'medium', label: '🟡 Medium Risk (High COD Amount)', value: 'medium' };
-  }
-  
-  if (allPhones.length > 1) {
-    // Repeated phone number
-    const cancelled = allPhones.filter(o => o.deliveryStatus === 'Cancelled');
-    if (cancelled.length > 0) {
-      return { level: 'high', label: '🔴 High Risk (Repeated Cancellations)', value: 'high' };
+// --- Risk Evaluation & Analytics ---
+function runRiskAnalysis() {
+  const intel = {};
+  let highRiskCount = 0;
+  let mediumRiskCount = 0;
+  let lowRiskCount = 0;
+  let totalFails = 0;
+  let totalDelivered = 0;
+  let totalRevenue = 0;
+  const cities = {};
+
+  orders.forEach(o => {
+    const p = o.phoneNumber;
+    if (!p) return;
+    
+    if (!intel[p]) {
+      intel[p] = {
+        name: o.customerName,
+        phone: p,
+        total: 0,
+        fails: 0,
+        success: 0,
+        reasons: new Set(),
+        amountTotal: 0,
+        lastStatus: o.status,
+        fraudScore: 0
+      };
     }
-    return { level: 'medium', label: '🟡 Medium Risk (Repeated Customer)', value: 'medium' };
-  }
+    
+    intel[p].total++;
+    const amt = parseFloat(o.amount || 0);
+    intel[p].amountTotal += amt;
+    
+    if (o.status === 'Delivered') {
+      intel[p].success++;
+      totalDelivered++;
+      totalRevenue += amt;
+    } else if (o.status === 'Returned' || o.status === 'Cancelled') {
+      intel[p].fails++;
+      totalFails++;
+    }
+
+    // City tracking
+    const city = o.city || 'Unknown';
+    if (!cities[city]) cities[city] = { total: 0, success: 0, fails: 0 };
+    cities[city].total++;
+    if (o.status === 'Delivered') cities[city].success++;
+    if (o.status === 'Returned' || o.status === 'Cancelled') cities[city].fails++;
+  });
+
+  Object.values(intel).forEach(item => {
+    item.rtoRate = item.total > 0 ? (item.fails / item.total) * 100 : 0;
+    
+    // Calculate Advanced Fraud Score (0-100)
+    let score = 0;
+    if (item.fails > 0) score += 20 * item.fails;
+    if (item.rtoRate > 30) score += 15;
+    if (item.rtoRate > 60) score += 25;
+    if (item.amountTotal > 10000) score += 10;
+    if (item.total > 5 && item.success === 0) score += 30;
+    
+    item.fraudScore = Math.min(score, 100);
+
+    // Smart Risk Logic
+    if (item.fails >= 2 || (item.fails > 0 && item.success === 0 && item.total > 1)) {
+      item.risk = 'high';
+      item.label = 'High Risk';
+      highRiskCount++;
+    } else if (item.success > 0 && item.fails > 0) {
+      item.risk = 'medium';
+      item.label = 'Medium Risk';
+      mediumRiskCount++;
+    } else if (item.fails === 1 && item.total === 1) {
+      item.risk = 'medium';
+      item.label = 'Medium Risk';
+      mediumRiskCount++;
+    } else {
+      item.risk = 'low';
+      item.label = 'Low Risk';
+      lowRiskCount++;
+    }
+    
+    if (item.amountTotal > 5000) item.reasons.add('High COD Value');
+    if (item.total > 3) item.reasons.add('Frequent Buyer');
+    if (item.fraudScore > 50) item.reasons.add('High Fraud Score');
+    
+    item.dominantReason = Array.from(item.reasons).join(', ') || 'Clean Profile';
+  });
+
+  riskIntelligence = intel;
   
-  return { level: 'low', label: '🟢 Low Risk', value: 'low' };
+  // Dashboard Mini Stats
+  if (riskStatHigh) riskStatHigh.textContent = highRiskCount;
+  if (riskStatMedium) riskStatMedium.textContent = mediumRiskCount;
+  if (riskStatLow) riskStatLow.textContent = lowRiskCount;
+  if (riskStatTotal) riskStatTotal.textContent = Object.keys(intel).length;
+  if (alertCount) alertCount.textContent = highRiskCount;
+  
+  const healthRate = (totalDelivered + totalFails) > 0 
+    ? Math.round((totalDelivered / (totalDelivered + totalFails)) * 100) 
+    : 100;
+  
+  if (deliveryHealthRate) deliveryHealthRate.textContent = healthRate + '%';
+  if (deliveryHealthFill) deliveryHealthFill.style.width = healthRate + '%';
+
+  // Analytics View Update
+  if (statAvgSuccess) statAvgSuccess.textContent = healthRate + '%';
+  if (statAvgRTO) statAvgRTO.textContent = (100 - healthRate) + '%';
+  if (statTotalRevenue) statTotalRevenue.textContent = '₹' + totalRevenue.toLocaleString();
+  if (statDeliveredCount) statDeliveredCount.textContent = totalDelivered;
+
+  renderRiskDashboard();
+  renderCityStats(cities);
+  renderRiskPie(highRiskCount, mediumRiskCount, lowRiskCount);
+}
+
+function renderCityStats(cities) {
+  if (!cityStatsList) return;
+  const sorted = Object.entries(cities).sort((a, b) => b[1].total - a[1].total).slice(0, 5);
+  
+  if (sorted.length === 0) {
+    cityStatsList.innerHTML = '<div class="empty-state py-8">No geographical data available.</div>';
+    return;
+  }
+
+  cityStatsList.innerHTML = sorted.map(([city, data]) => {
+    const rate = data.total > 0 ? Math.round((data.success / data.total) * 100) : 0;
+    return `
+      <div class="flex flex-col gap-1">
+        <div class="flex items-center justify-between text-xs font-bold mb-1">
+          <span>${city}</span>
+          <span class="${rate > 70 ? 'text-emerald-400' : 'text-amber-400'}">${rate}% Success</span>
+        </div>
+        <div class="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
+          <div class="h-full bg-emerald-500" style="width: ${rate}%"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderRiskPie(high, med, low) {
+  const total = high + med + low;
+  if (total === 0 || !riskCircleHigh) return;
+
+  const highP = (high / total) * 100;
+  const medP = (med / total) * 100;
+  const lowP = (low / total) * 100;
+
+  riskCircleHigh.style.strokeDasharray = `${highP} 100`;
+  riskCircleMedium.style.strokeDasharray = `${medP} 100`;
+  riskCircleMedium.style.strokeDashoffset = `-${highP}`;
+  riskCircleLow.style.strokeDasharray = `${lowP} 100`;
+  riskCircleLow.style.strokeDashoffset = `-${highP + medP}`;
+
+  if (riskTotalCountCenter) riskTotalCountCenter.textContent = total;
+}
+
+function evalRisk(order) {
+  const p = order.phoneNumber;
+  const pIntel = riskIntelligence[p];
+  
+  if (!pIntel) {
+    // Fallback if not yet analyzed
+    if (parseFloat(order.amount) >= 5000) {
+      return { level: 'medium', label: '🟡 Medium Risk (High amount)', value: 'medium' };
+    }
+    return { level: 'low', label: '🟢 Low Risk', value: 'low' };
+  }
+
+  const isRepeat = pIntel.total > 1;
+  let finalLabel = '';
+
+  if (pIntel.risk === 'high') {
+    finalLabel = `🔴 Fraud Risk (${pIntel.dominantReason})`;
+  } else if (isRepeat && pIntel.risk === 'low') {
+    finalLabel = `🟢 Repeat Customer`;
+  } else {
+    const prefix = pIntel.risk === 'medium' ? '🟡 ' : '🟢 ';
+    finalLabel = `${prefix}${pIntel.label}`;
+  }
+
+  return { 
+    level: pIntel.risk, 
+    label: finalLabel, 
+    value: pIntel.risk 
+  };
+}
+
+function renderRiskDashboard() {
+  if (!riskIntelligenceBody) return;
+  
+  const entries = Object.values(riskIntelligence).sort((a, b) => b.fails - a.fails);
+  const highRisk = entries.filter(e => e.risk === 'high');
+  
+  if (highRisk.length === 0) {
+    riskIntelligenceEmpty.classList.remove('hidden');
+    riskIntelligenceBody.innerHTML = '';
+  } else {
+    riskIntelligenceEmpty.classList.add('hidden');
+    riskIntelligenceBody.innerHTML = highRisk.slice(0, 50).map(e => `
+      <tr class="hover:bg-white/5 transition-colors">
+        <td class="py-4 px-2">
+          <div class="font-bold text-white">${e.phone}</div>
+          <div class="text-xs text-slate-400">${e.name || 'Unknown'}</div>
+        </td>
+        <td class="py-4 px-2">
+          <span class="status-badge high">${e.label}</span>
+        </td>
+        <td class="py-4 px-2 text-center font-mono">${Math.round(e.rtoRate)}%</td>
+        <td class="py-4 px-2 text-xs text-slate-400">${e.dominantReason}</td>
+      </tr>
+    `).join('');
+  }
+
+  if (topSuspiciousList) {
+    topSuspiciousList.innerHTML = entries.slice(0, 5).map(e => `
+      <div class="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-full bg-${e.risk === 'high' ? 'red' : 'amber'}-500/20 flex items-center justify-center">
+            <i data-lucide="user" class="w-4 h-4 text-${e.risk === 'high' ? 'red' : 'amber'}-400"></i>
+          </div>
+          <div>
+            <div class="text-xs font-bold text-white">${e.phone}</div>
+            <div class="text-[10px] text-slate-400">${e.total} total orders</div>
+          </div>
+        </div>
+        <div class="text-right">
+          <div class="text-xs font-bold ${e.risk === 'high' ? 'text-red-400' : 'text-amber-400'}">${e.fails} RTO</div>
+          <div class="text-[10px] text-slate-500">${Math.round(e.rtoRate)}% rate</div>
+        </div>
+      </div>
+    `).join('');
+    if (typeof lucide !== 'undefined') lucide.createIcons({ root: topSuspiciousList });
+  }
 }
 
 // --- Validation Helpers ---
@@ -588,258 +838,201 @@ if (typeof pdfjsLib !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 }
 
+let isUploading = false;
+
+const updateOverlay = (text) => {
+  const el = document.getElementById('uploadStatusText');
+  if (el) el.textContent = text;
+  console.log(`[UPLOAD STAGE] ${text}`);
+};
+
 async function parseFile(file) {
+  if (isUploading) return;
+  isUploading = true;
+  console.log('[UPLOAD START] Initializing upload timeline');
+  
+  // Setup Fallback Timeout
+  const uploadTimeout = setTimeout(() => {
+    if (isUploading) {
+      console.error('[UPLOAD ERROR] Parsing timed out');
+      showToast('Upload failed due to timeout. Please try a simpler file.', 'alert-triangle');
+      cleanupUploadState();
+    }
+  }, 10000); // 10 second timeout
+
   try {
-    if (file.name.toLowerCase().endsWith('.csv')) {
-      handleCsvFile(file);
+    const ext = file.name.split('.').pop().toLowerCase();
+    const allowed = ['csv', 'xlsx', 'xls', 'pdf'];
+    if (!allowed.includes(ext)) {
+      console.error(`[UPLOAD ERROR] Unsupported file extension: ${ext}`);
+      showToast('Unsupported file format', 'alert-circle');
+      cleanupUploadState();
+      return;
+    }
+    
+    if (file.size === 0) {
+      console.warn('[UPLOAD ERROR] File is empty');
+      showToast('File is empty', 'alert-circle');
+      cleanupUploadState();
       return;
     }
 
-    showToast('Parsing file...', 'loader-2');
+    const uploadOverlay = document.getElementById('uploadOverlay');
+    if (uploadOverlay) {
+      uploadOverlay.style.display = 'flex';
+      uploadOverlay.classList.remove('hidden');
+    }
+    const uploadArea = document.getElementById('uploadArea');
+    if (uploadArea) {
+      uploadArea.style.pointerEvents = 'none';
+      uploadArea.classList.add('border-emerald-500');
+    }
+
+    updateOverlay('STEP 1: Reading file...');
+    console.log(`[FILE READ] Name: ${file.name}, Size: ${(file.size/1024).toFixed(2)} KB`);
+
     let res = null;
-    
-    if (file.name.toLowerCase().endsWith('.pdf')) {
+    if (ext === 'pdf') {
       res = await parsePDF(file);
     } else {
-      res = await parseExcelCSV(file);
+      res = await parseSpreadsheet(file);
     }
     
-    processImportedData(res.extracted, res.invalidCount, file.name);
+    if (!res || !res.extracted) {
+       throw new Error('No data returned from parser');
+    }
+
+    updateOverlay('STEP 3: Validating orders...');
+    await processImportedData(res.extracted, res.invalidCount, file.name);
+
   } catch (err) {
-    console.error('Parse error:', err);
-    showToast('Failed to parse file', 'alert-circle');
+    console.error('[UPLOAD ERROR] Parse error:', err);
+    showToast('Failed to parse file or corrupted data', 'alert-circle');
+  } finally {
+    clearTimeout(uploadTimeout);
+    cleanupUploadState();
   }
 }
 
-async function handleCsvFile(file) {
-  pendingCsvFilename = file.name;
-  Papa.parse(file, {
-    header: true,
-    skipEmptyLines: true,
-    complete: function(results) {
-      const data = results.data;
-      const headers = results.meta.fields;
-      
-      // Auto-detect columns
-      const mapping = detectColumns(headers);
-      
-      const seenInCsv = new Set();
-      let csvDupCount = 0;
-
-      pendingCsvRows = data.map(row => {
-        const name = row[mapping.name] || '';
-        const phoneRaw = row[mapping.phone] || '';
-        const product = row[mapping.product] || 'Order Item';
-        const amountRaw = row[mapping.amount] || '0';
-        
-        const phone = isValidIndianPhone(phoneRaw);
-        const amount = isValidAmount(amountRaw);
-        
-        let isDuplicate = false;
-        if (phone) {
-          if (seenInCsv.has(phone)) {
-            isDuplicate = true;
-            csvDupCount++;
-          }
-          seenInCsv.add(phone);
-        }
-
-        return {
-          id: 'ord_' + Math.random().toString(36).substr(2, 9),
-          customerName: name,
-          phoneNumber: phone,
-          productName: product,
-          amount: amount,
-          status: 'Pending',
-          notes: '',
-          isValid: !!(name && phone && amount),
-          isDuplicate: isDuplicate
-        };
-      });
-
-      renderCsvPreview(headers, data, mapping, csvDupCount);
-      csvPreviewModal.classList.remove('hidden');
-    }
-  });
-}
-
-function detectColumns(headers) {
-  const mapping = { name: '', phone: '', product: '', amount: '' };
-  
-  headers.forEach(h => {
-    const low = h.toLowerCase();
-    if (low.includes('name') || low.includes('customer')) mapping.name = h;
-    if (low.includes('phone') || low.includes('mobile') || low.includes('contact')) mapping.phone = h;
-    if (low.includes('product') || low.includes('item')) mapping.product = h;
-    if (low.includes('amount') || low.includes('price') || low.includes('total')) mapping.amount = h;
-  });
-
-  // Fallbacks by index if not found
-  if (!mapping.name) mapping.name = headers[0];
-  if (!mapping.phone) mapping.phone = headers[1];
-  if (!mapping.product) mapping.product = headers[2];
-  if (!mapping.amount) mapping.amount = headers[3];
-
-  return mapping;
-}
-
-function renderCsvPreview(headers, data, mapping, csvDupCount) {
-  // Render Header
-  csvPreviewHeader.innerHTML = headers.map(h => `
-    <th class="px-4 py-3 text-xs font-semibold text-slate-400 border-b border-white/5 uppercase sticky top-0 bg-[#0f172a]">
-      <div class="flex items-center gap-2">
-        ${h}
-        ${Object.values(mapping).includes(h) ? '<span class="text-emerald-400">✓</span>' : ''}
-      </div>
-    </th>
-  `).join('');
-
-  // Render Body (top 100 rows)
-  csvPreviewBody.innerHTML = pendingCsvRows.slice(0, 100).map((pRow, idx) => {
-    const rawRow = data[idx];
-    return `
-      <tr class="hover:bg-white/5 transition-colors ${pRow.isDuplicate ? 'opacity-50 grayscale bg-red-500/5' : ''}">
-        ${headers.map(h => `
-          <td class="px-4 py-3 text-sm text-slate-300 truncate max-w-[150px]">
-            ${rawRow[h] || '-'}
-            ${mapping.phone === h && pRow.isDuplicate ? '<span class="ml-2 text-[10px] text-red-500 font-bold">DUP</span>' : ''}
-          </td>
-        `).join('')}
-      </tr>
-    `;
-  }).join('');
-
-  const validCount = pendingCsvRows.filter(r => r.phoneNumber && !r.isDuplicate).length;
-  let statsText = `Found ${data.length} rows. ${validCount} new valid orders detected.`;
-  if (csvDupCount > 0) statsText += ` <span class="text-amber-400">(${csvDupCount} duplicates in file skipped)</span>`;
-  
-  csvImportStats.innerHTML = statsText;
-}
-
-async function processImportedData(extracted, invalidCount, filename) {
-  const newUploadId = 'up_' + Date.now();
-  const unique = [];
-  const seenPhones = new Set();
-  
-  // Also track phones already in existing orders
-  orders.forEach(o => seenPhones.add(o.phoneNumber));
-  
-  let dupCount = 0;
-  
-  extracted.forEach(o => {
-    if (!seenPhones.has(o.phoneNumber)) {
-      seenPhones.add(o.phoneNumber);
-      o.uploadId = newUploadId;
-      unique.push(o);
-    } else {
-      dupCount++;
-    }
-  });
-
-  if (unique.length > 0) {
-    const newUpload = {
-      id: newUploadId,
-      filename: filename,
-      total: unique.length,
-      timestamp: new Date().toISOString()
-    };
-    
-    uploads.unshift(newUpload);
-    activeUploadId = newUploadId;
-    orders = [...unique, ...orders];
-    
-    if (currentUser) {
-      await supabase.from('uploads').insert({
-        id: newUploadId,
-        user_id: currentUser.id,
-        filename: filename,
-        total: unique.length,
-        timestamp: newUpload.timestamp
-      });
-      
-      await supabase.from('orders').insert(unique.map(o => ({
-        id: o.id,
-        user_id: currentUser.id,
-        upload_id: newUploadId,
-        customer_name: o.customerName,
-        phone: o.phoneNumber,
-        product: o.productName,
-        amount: o.amount,
-        status: o.status,
-        notes: o.notes
-      })));
-    }
-    
-    saveOrders();
-    showToast(`Successfully imported ${unique.length} orders!`, 'check-circle-2');
-    vibrate(50);
-    switchView('view-orders');
-
-    if (dupCount > 0) {
-      setTimeout(() => {
-        showToast(`${dupCount} duplicate rows in file removed`, 'info');
-      }, 3000);
-    }
-    
-    if (invalidCount > 0) {
-      setTimeout(() => {
-        showToast(`${invalidCount} invalid rows skipped`, 'info');
-      }, 4500);
-    }
-  } else {
-    showToast('No valid new orders found.', 'alert-circle');
+function cleanupUploadState() {
+  isUploading = false;
+  const uploadArea = document.getElementById('uploadArea');
+  const uploadOverlay = document.getElementById('uploadOverlay');
+  if (uploadOverlay) {
+    uploadOverlay.style.display = 'none';
+    uploadOverlay.classList.add('hidden');
   }
+  if (uploadArea) {
+    uploadArea.style.pointerEvents = 'auto';
+    uploadArea.classList.remove('border-emerald-500');
+  }
+  const fileInput = document.getElementById('fileInput');
+  if (fileInput) fileInput.value = ''; // Reset input
 }
 
-async function parseExcelCSV(file) {
+async function parseSpreadsheet(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
+        updateOverlay('STEP 2: Parsing rows...');
         const data = e.target.result;
         const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(firstSheet, { header: "A", defval: "" });
+        const firstSheetName = workbook.SheetNames[0];
+        const firstSheet = workbook.Sheets[firstSheetName];
         
+        const rawJson = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: "" });
+        if (rawJson.length === 0) {
+          console.warn('[UPLOAD ERROR] No data found in the spreadsheet');
+          resolve({ extracted: [], invalidCount: 0 });
+          return;
+        }
+
+        console.log(`[ROWS PARSED] Total rows in first sheet: ${rawJson.length}`);
+
+        // Find header row gracefully
+        let headerRowIdx = -1;
+        for (let i = 0; i < Math.min(rawJson.length, 10); i++) {
+          const rowStr = rawJson[i].join(' ').toLowerCase();
+          if (rowStr.includes('name') || rowStr.includes('customer') || rowStr.includes('phone') || rowStr.includes('mobile')) {
+            headerRowIdx = i;
+            break;
+          }
+        }
+        
+        if (headerRowIdx === -1) {
+             headerRowIdx = 0;
+        }
+
+        const headers = rawJson[headerRowIdx].map(String);
+        
+        const mapping = { name: -1, phone: -1, product: -1, amount: -1, address: -1, status: -1 };
+        headers.forEach((h, idx) => {
+          const low = h.toLowerCase().trim();
+          if (low.includes('name') || low.includes('customer')) { if (mapping.name === -1) mapping.name = idx; }
+          else if (low.includes('phone') || low.includes('mobile') || low.includes('contact')) { if (mapping.phone === -1) mapping.phone = idx; }
+          else if (low.includes('product') || low.includes('item')) { if (mapping.product === -1) mapping.product = idx; }
+          else if (low.includes('amount') || low.includes('price') || low.includes('total') || low.includes('val')) { if (mapping.amount === -1) mapping.amount = idx; }
+          else if (low.includes('city') || low.includes('location') || low.includes('address')) { if (mapping.address === -1) mapping.address = idx; }
+          else if (low.includes('status')) { if(mapping.status === -1) mapping.status = idx; }
+        });
+
+        // Fallbacks if mapping fails
+        if (mapping.name === -1) mapping.name = 0;
+        if (mapping.phone === -1) mapping.phone = 1;
+        if (mapping.product === -1) mapping.product = 2;
+        if (mapping.amount === -1) mapping.amount = 3;
+
         const extracted = [];
         let invalidCount = 0;
+        const seenInFile = new Set();
 
-        for (let i = 0; i < json.length; i++) {
-          const row = json[i];
-          
-          let nameRaw = String(row["A"] || '').trim();
-          let phoneRaw = String(row["B"] || '').trim();
-          let productRaw = String(row["C"] || '').trim();
-          let priceRaw = String(row["D"] || '').trim();
-          
-          if (!nameRaw && !phoneRaw && !productRaw && !priceRaw) continue; // Empty row
-          
-          // Skip header row if it seems to be headers
-          if (i === 0 && (nameRaw.toLowerCase().includes('name') || phoneRaw.toLowerCase().includes('phone'))) {
-            continue;
-          }
+        for (let i = headerRowIdx + 1; i < rawJson.length; i++) {
+          const row = rawJson[i];
+          if (!row || row.length === 0 || row.join('').trim() === '') continue;
 
+          let nameRaw = String(row[mapping.name] || '').trim();
+          let phoneRaw = String(row[mapping.phone] || '').trim();
+          let productRaw = mapping.product !== -1 ? String(row[mapping.product] || '').trim() : 'Order Item';
+          let amountRaw = mapping.amount !== -1 ? String(row[mapping.amount] || '').trim() : '0';
+          let addressRaw = mapping.address !== -1 ? String(row[mapping.address] || '').trim() : 'Unknown';
+          let statusRaw = mapping.status !== -1 ? String(row[mapping.status] || '').trim() : 'Pending';
+          
+          if (!statusRaw) statusRaw = 'Pending';
+          
           const phone = isValidIndianPhone(phoneRaw);
-          const price = isValidAmount(priceRaw);
+          const amount = isValidAmount(amountRaw);
 
-          if (!nameRaw || !phone || !price || !productRaw) {
-            invalidCount++;
-            continue;
+          if (!nameRaw && !phoneRaw && !productRaw && !amountRaw) continue;
+
+          if (!phone) {
+             invalidCount++;
+             continue;
           }
+          
+          const finalAmount = amount || '0';
 
-         extracted.push({
-            id: Date.now() + Math.random().toString(36).substring(2, 9),
-            uploadId: null, // will be set in parseFile
-            customerName: nameRaw,
+          if (seenInFile.has(phone)) {
+             invalidCount++;
+             continue;
+          }
+          seenInFile.add(phone);
+
+          extracted.push({
+            id: 'ord_' + Math.random().toString(36).substr(2, 9),
+            uploadId: null,
+            customerName: nameRaw || 'Customer',
             phoneNumber: phone,
-            productName: productRaw,
-            amount: price,
-            status: 'Pending',
+            productName: productRaw || 'Order Item',
+            amount: finalAmount,
+            city: addressRaw, // Mapped to address
+            status: statusRaw,
             notes: '',
             timestamp: new Date().toISOString()
           });
         }
         
+        console.log(`[VALID ORDERS] Found ${extracted.length} valid orders. Excluded ${invalidCount} invalid rows.`);
         resolve({ extracted, invalidCount });
       } catch (err) {
         reject(err);
@@ -849,6 +1042,161 @@ async function parseExcelCSV(file) {
     reader.readAsArrayBuffer(file);
   });
 }
+
+async function processImportedData(extracted, invalidCount, filename) {
+  try {
+    const newUploadId = 'up_' + Date.now();
+    const unique = [];
+    const seenPhones = new Set();
+    
+    // Pre-populate seenPhones from prior orders to detect repeats
+    orders.forEach(o => seenPhones.add(o.phoneNumber));
+
+    let dupCount = 0;
+    
+    // Ensure risk intel is calculated before using it
+    runRiskAnalysis();
+
+    extracted.forEach(o => {
+      // Allow repeat orders for analytics, we just append all of them
+      o.uploadId = newUploadId;
+      unique.push(o);
+    });
+
+    if (unique.length > 0) {
+      updateOverlay('STEP 4: Saving to database...');
+      console.log(`[SUPABASE INSERT] Saving ${unique.length} new orders to db`);
+      const newUpload = {
+        id: newUploadId,
+        filename: filename,
+        total: unique.length,
+        timestamp: new Date().toISOString()
+      };
+      
+      uploads.unshift(newUpload);
+      activeUploadId = newUploadId;
+      orders = [...unique, ...orders];
+      
+      if (currentUser) {
+        await supabase.from('uploads').insert({
+          id: newUploadId,
+          user_id: currentUser.id,
+          filename: filename,
+          total: unique.length,
+          timestamp: newUpload.timestamp
+        });
+        
+        // chunk inserts to prevent huge payload sizes freezing supabase
+        const chunkSize = 500;
+        for (let i = 0; i < unique.length; i += chunkSize) {
+          const chunk = unique.slice(i, i + chunkSize);
+          await supabase.from('orders').insert(chunk.map(o => {
+            const history = seenPhones.has(o.phoneNumber);
+            // Default assumes no history
+            let calculatedRisk = 'low';
+            if (history && riskIntelligence[o.phoneNumber]) {
+               calculatedRisk = riskIntelligence[o.phoneNumber].risk;
+            }
+            return {
+              id: o.id,
+              user_id: currentUser.id,
+              upload_id: newUploadId,
+              customer_name: o.customerName,
+              phone: o.phoneNumber,
+              product: o.productName,
+              amount: o.amount,
+              status: o.status,
+              notes: o.notes,
+              city: o.city,
+              risk_level: calculatedRisk,
+              repeat_customer: history
+            };
+          }));
+        }
+      }
+      
+      saveOrders(); // Save to local storage and trigger renders
+      updateOverlay('STEP 5: Upload complete ✅');
+      console.log(`[UPLOAD SUCCESS] Processed ${unique.length} records. Found ${dupCount} duplicates. Skipped ${invalidCount} invalids.`);
+      showToast(`${unique.length} Orders Imported Successfully`, 'check-circle-2');
+      vibrate(50);
+      
+      // Delay slightly for user to read success message before hiding overlay via cleanup
+      setTimeout(() => {
+         switchView('view-orders');
+      }, 500);
+
+      if (dupCount > 0) {
+        setTimeout(() => {
+          showToast(`${dupCount} duplicate rows in file removed`, 'info');
+        }, 3000);
+      }
+      
+      if (invalidCount > 0) {
+        setTimeout(() => {
+          showToast(`${invalidCount} invalid rows skipped`, 'info');
+        }, 4500);
+      }
+    } else {
+      console.warn('[UPLOAD ERROR] No valid new orders found in file (likely all duplicates)');
+      showToast('No valid new orders found.', 'alert-circle');
+    }
+  } catch (err) {
+     console.error('[SUPABASE INSERT ERROR]', err);
+     throw err;
+  }
+}
+
+window.loadDemoOrders = async () => {
+  try {
+     showToast('Loading Demo Orders...', 'loader-2');
+     const demoExtracted = [
+       {
+          id: 'ord_' + Math.random().toString(36).substr(2, 9),
+          uploadId: null,
+          customerName: "Rahul Sharma",
+          phoneNumber: "9876543210",
+          productName: "Premium Wireless Headphones",
+          amount: "1499",
+          city: "Mumbai",
+          status: "Pending",
+          notes: "",
+          timestamp: new Date().toISOString()
+       },
+       {
+          id: 'ord_' + Math.random().toString(36).substr(2, 9),
+          uploadId: null,
+          customerName: "Priya Desai",
+          phoneNumber: "9876543211",
+          productName: "Smart Fitness Watch",
+          amount: "999",
+          city: "Delhi",
+          status: "Pending",
+          notes: "",
+          timestamp: new Date().toISOString()
+       },
+       {
+          id: 'ord_' + Math.random().toString(36).substr(2, 9),
+          uploadId: null,
+          customerName: "Karan Singh",
+          phoneNumber: "9876543212",
+          productName: "Gaming Mouse RGB",
+          amount: "499",
+          city: "Bangalore",
+          status: "Pending",
+          notes: "",
+          timestamp: new Date().toISOString()
+       }
+     ];
+     await processImportedData(demoExtracted, 0, "Demo_Orders.csv");
+  } catch (e) {
+     console.error(e);
+     showToast('Failed to load demo data', 'alert-circle');
+  }
+};
+
+// Use robust parseSpreadsheet instead
+// async function parseExcelCSV(file) { ... removed for brevity }
 
 async function parsePDF(file) {
   return new Promise(async (resolve, reject) => {
@@ -919,15 +1267,29 @@ function renderUploads() {
   }
 
   list.innerHTML = uploads.map(u => `
-    <div class="upload-history-card" onclick="reopenUpload('${u.id}')">
-      <div class="uh-info">
-        <h4>${u.filename}</h4>
-        <p>${new Date(u.timestamp).toLocaleString()} • ${u.total} orders</p>
+    <div class="upload-history-card bg-[#111827] border border-white/5 rounded-xl p-4 mb-3 flex items-center justify-between cursor-pointer hover:bg-white/5 hover:border-white/10 transition-all ${u.id === activeUploadId ? 'border-emerald-500/30 bg-emerald-500/5' : ''}" onclick="reopenUpload('${u.id}')">
+      <div class="flex items-center gap-4">
+        <div class="w-10 h-10 rounded-lg flex items-center justify-center ${u.id === activeUploadId ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-400'}">
+          <i data-lucide="file-spreadsheet" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2 mb-1">
+            <h4 class="text-sm font-semibold text-white/90 truncate max-w-[150px] sm:max-w-xs">${u.filename}</h4>
+            ${u.id === activeUploadId ? `<span class="bg-emerald-500 text-[#020617] text-[9px] font-bold px-1.5 py-0.5 rounded-sm tracking-wider">ACTIVE</span>` : ''}
+          </div>
+          <p class="text-xs text-slate-400 opacity-80 flex items-center gap-1.5">
+            <span>${new Date(u.timestamp).toLocaleDateString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</span>
+            <span class="opacity-50">•</span>
+            <span class="font-medium text-slate-300">${u.total} orders</span>
+          </p>
+        </div>
       </div>
-      <div class="uh-actions">
-        ${u.id === activeUploadId ? `<span class="badge" style="background:var(--primary);color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;">ACTIVE</span>` : ''}
-        <button class="icon-action-btn btn-delete" onclick="event.stopPropagation(); deleteUpload('${u.id}')">
-          <i data-lucide="trash-2"></i>
+      <div class="flex items-center gap-2">
+        <button class="action-icon-mini hover:bg-red-500/10 hover:text-red-400" onclick="event.stopPropagation(); deleteUpload('${u.id}')" title="Delete">
+          <i data-lucide="trash-2" class="w-4 h-4"></i>
+        </button>
+        <button class="action-icon-mini" title="Open">
+          <i data-lucide="chevron-right" class="w-4 h-4"></i>
         </button>
       </div>
     </div>
@@ -964,6 +1326,9 @@ function renderOrders() {
 
   // Filter based on currently active upload
   const activeOrders = orders.filter(o => o.uploadId === activeUploadId);
+
+  // Trigger Risk Analysis before rendering dashboard stats
+  runRiskAnalysis();
 
   // Update Stats
   if (statTotal) statTotal.textContent = activeOrders.length;
@@ -1015,72 +1380,85 @@ function renderOrders() {
     const risk = evalRisk(order);
     const hasNotes = !!order.notes;
     const isSelected = selectedOrdersIds.has(order.id);
+    const pIntel = riskIntelligence[order.phoneNumber];
+    const intelStats = pIntel && pIntel.total > 1 ? `
+        <div class="flex items-center gap-2 mt-1.5 text-[10px] uppercase font-semibold text-slate-500 tracking-wider">
+           <span>Orders: <b class="text-white">${pIntel.total}</b></span>
+           <span class="text-emerald-500/80">Del: <b class="text-emerald-400">${pIntel.success}</b></span>
+           <span class="text-red-500/80">Ret: <b class="text-red-400">${pIntel.fails}</b></span>
+        </div>` : '';
+
     return `
-    <div class="bulk-order-card ${order.status} ${isSelected ? 'selected' : ''}" data-id="${order.id}">
+    <div class="bulk-order-card saas-compact-card ${order.status} ${isSelected ? 'selected' : ''}" data-id="${order.id}">
+      <!-- Selection Area Overlay -->
       <div class="card-selection-area" onclick="event.stopPropagation(); toggleSelection('${order.id}')">
         <div class="card-checkbox ${isSelected ? 'checked' : ''}">
           <i data-lucide="check" class="w-3 h-3 ${isSelected ? '' : 'hidden'}"></i>
         </div>
       </div>
-
-      <div class="card-top-badges">
-        <div class="status-badge ${order.status}">${order.status}</div>
-        <div class="risk-badge risk-${risk.level}">${risk.label}</div>
-      </div>
       
-      <div class="bulk-order-header border-b border-[#334155] border-opacity-50 pb-3 mb-3">
+      <!-- Top Row: Name + Phone & Badges -->
+      <div class="card-top-row flex justify-between items-start mb-2 relative z-10">
         <div>
-          <h3 class="customer-name" style="font-size:1.125rem">${order.customerName}</h3>
-          <p class="customer-phone" style="font-family:monospace">${order.phoneNumber}</p>
+          <div class="flex items-center gap-2 mb-0.5">
+            <h3 class="customer-name font-semibold text-white/90 text-sm tracking-tight">${order.customerName}</h3>
+            <div class="status-dot ${order.status.toLowerCase()}"></div>
+          </div>
+          <p class="customer-phone text-xs font-mono text-slate-400/80">${order.phoneNumber} <span class="opacity-40 px-1">•</span> ${order.city || 'Unknown'}</p>
+          ${intelStats}
         </div>
-        <div style="display:flex;gap:8px;">
-          <button class="icon-action-btn" onclick="editOrder('${order.id}')">
-            <i data-lucide="edit-3"></i>
-          </button>
-          <button class="icon-action-btn ${hasNotes ? 'bg-blue-500/20 text-blue-400' : ''}" onclick="toggleNotes('${order.id}')">
-            <i data-lucide="file-edit"></i>
-          </button>
-          <button class="icon-action-btn btn-delete" onclick="deleteOrder('${order.id}')">
-            <i data-lucide="trash-2"></i>
-          </button>
+        <div class="flex flex-col items-end gap-1">
+          <div class="risk-pill minimal-risk risk-${risk.level}">${risk.label}</div>
         </div>
       </div>
       
-      <div class="bulk-order-details" style="grid-template-columns: 1fr 1fr;">
-        <div class="detail-col">
-          <label>Product & Amount</label>
-          <p class="truncate text-sm text-white">${order.productName}</p>
-          <p class="price-text mt-1 text-sm">₹${order.amount}</p>
+      <!-- Middle Row: Product & Amount -->
+      <div class="card-mid-row bg-white/[0.02] rounded-lg p-2.5 mb-2 relative z-10 flex justify-between items-center border border-white/5">
+        <div class="min-w-0 flex-1 mr-3">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500 font-medium mb-0.5">Product</p>
+          <p class="truncate text-xs text-white/80 font-medium">${order.productName}</p>
         </div>
-        <div class="detail-col">
-          <label>Delivery Status</label>
-          <div class="delivery-select-wrap mt-1">
-            <select class="delivery-select" onchange="updateDeliveryStatus('${order.id}', this.value)">
-              <option value="Pending" ${order.status === 'Pending' ? 'selected' : ''}>Pending</option>
-              <option value="Confirmed" ${order.status === 'Confirmed' ? 'selected' : ''}>Confirmed</option>
-              <option value="Shipped" ${order.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
-              <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
-              <option value="Returned" ${order.status === 'Returned' ? 'selected' : ''}>Returned</option>
-            </select>
-            <i data-lucide="chevron-down"></i>
-          </div>
+        <div class="flex-none text-right">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500 font-medium mb-0.5">Amount</p>
+          <p class="text-sm font-semibold text-emerald-400">₹${order.amount}</p>
         </div>
       </div>
 
-      <div class="order-notes-wrapper ${hasNotes ? '' : 'hidden'}" id="notes_wrapper_${order.id}">
-        <textarea id="notes_text_${order.id}" class="order-notes-textarea" placeholder="Add seller notes here..." onblur="saveNotes('${order.id}', this.value)">${order.notes || ''}</textarea>
+      <!-- Notes Area (Conditional) -->
+      <div class="order-notes-wrapper ${hasNotes ? '' : 'hidden'} mb-2 relative z-10" id="notes_wrapper_${order.id}">
+        <textarea id="notes_text_${order.id}" class="order-notes-textarea compact-textarea" placeholder="Add seller notes..." onblur="saveNotes('${order.id}', this.value)">${order.notes || ''}</textarea>
       </div>
 
-      <div class="bulk-order-actions mt-3 pt-3 border-t border-[#334155] border-opacity-50">
-        <button class="action-btn btn-wa flex-1" onclick="sendWA('${order.id}')">
-          <i data-lucide="message-circle"></i> Send WA
-        </button>
-        <button class="action-btn btn-copy" onclick="copyMessage('${order.id}')">
-          <i data-lucide="copy"></i>
-        </button>
-        <button class="icon-action-btn btn-toggle ${order.status === 'confirmed' ? 'active' : ''}" onclick="toggleStatus('${order.id}')">
-          <i data-lucide="check"></i>
-        </button>
+      <!-- Bottom Row: Deliver Status & Actions -->
+      <div class="card-bottom-actions flex items-center justify-between gap-2 relative z-10">
+        <div class="compact-delivery-select" aria-label="Update Delivery Status">
+          <select class="delivery-dropdown text-xs delivery-status-${order.status.toLowerCase()}" onchange="updateDeliveryStatus('${order.id}', this.value)" aria-label="Delivery Status">
+            <option value="Pending" ${order.status === 'Pending' ? 'selected' : ''}>Pending</option>
+            <option value="Confirmed" ${order.status === 'Confirmed' ? 'selected' : ''}>Confirmed</option>
+            <option value="Shipped" ${order.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
+            <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
+            <option value="Returned" ${order.status === 'Returned' ? 'selected' : ''}>Returned</option>
+          </select>
+          <i data-lucide="chevron-down" class="w-3 h-3 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+        </div>
+        
+        <div class="flex items-center gap-1.5">
+          <button class="action-btn-mini btn-wa-mini" onclick="sendWA('${order.id}')" title="Send WhatsApp Message" aria-label="Send WhatsApp Message to ${order.customerName}">
+            <i data-lucide="message-circle" class="w-4 h-4"></i> <span>Send</span>
+          </button>
+          <button class="action-icon-mini" onclick="copyMessage('${order.id}')" title="Copy Message" aria-label="Copy Order Message">
+            <i data-lucide="copy" class="w-4 h-4"></i>
+          </button>
+          <button class="action-icon-mini ${order.status === 'Confirmed' ? 'text-emerald-400 bg-emerald-400/10' : ''}" onclick="toggleStatus('${order.id}')" title="Toggle Confirmed Status" aria-label="Toggle Confirmed Status">
+            <i data-lucide="check" class="w-4 h-4"></i>
+          </button>
+          <button class="action-icon-mini" onclick="editOrder('${order.id}')" title="Edit Order" aria-label="Edit Order Details">
+            <i data-lucide="edit-3" class="w-4 h-4"></i>
+          </button>
+          <button class="action-icon-mini text-slate-500 opacity-60 hover:opacity-100 hover:text-red-400 hover:bg-red-400/10 transition-all duration-200" onclick="deleteOrder('${order.id}')" title="Delete Order" aria-label="Delete Order">
+            <i data-lucide="trash-2" class="w-4 h-4"></i>
+          </button>
+        </div>
       </div>
     </div>
   `}).join('');
@@ -1089,7 +1467,22 @@ function renderOrders() {
 }
 
 
-// --- Global Actions (attached to window for onclick) ---
+// --- Global Actions ---
+window.viewHistory = (phone) => {
+  const intel = riskIntelligence[phone];
+  if (!intel) {
+    showToast('No history available for this number', 'info');
+    return;
+  }
+  
+  // Navigate to risk view and highlight the specific intelligence
+  switchView('view-risk');
+  vibrate(30);
+  
+  // Future: Show a specific timeline modal
+  showToast(`Loading history for ${phone}...`, 'history');
+};
+
 window.toggleSelection = (id) => {
   if (selectedOrdersIds.has(id)) {
     selectedOrdersIds.delete(id);
@@ -1108,16 +1501,34 @@ window.bulkAction = async (actionType) => {
   vibrate(50);
 
   if (actionType.startsWith('wa-')) {
-    showToast(`Simulating WhatsApp messaging for ${selectedOrdersIds.size} orders...`, 'message-circle');
+    const total = selectedOrdersIds.size;
+    showToast(`Initializing WhatsApp Workflow for ${total} orders...`, 'zap');
     
-    // In a real app, this would iterate and possibly use an API
-    // For simulation, we'll just wait and show success
-    setTimeout(() => {
-      showToast(`Successfully sent ${selectedOrdersIds.size} messages!`, 'check-circle-2');
-      selectedOrdersIds.clear();
-      renderOrders();
-      updateBulkActionBar();
-    }, 1500);
+    // Workflow simulation
+    let processed = 0;
+    const interval = setInterval(() => {
+      processed++;
+      if (processed <= total) {
+        showToast(`Sending ${processed}/${total}...`, 'message-circle');
+        vibrate(20);
+      } else {
+        clearInterval(interval);
+        showToast(`Bulk message campaign completed!`, 'check-circle-2');
+        
+        // Update statuses to 'opened'
+        selectedList.forEach(async (o) => {
+          o.status = 'opened';
+          if (currentUser) {
+            await supabase.from('orders').update({ status: 'opened' }).eq('id', o.id);
+          }
+        });
+        saveOrders(true);
+        selectedOrdersIds.clear();
+        renderOrders();
+        updateBulkActionBar();
+      }
+    }, 400);
+
     return;
   }
 
@@ -1331,6 +1742,30 @@ window.copyMessage = (id) => {
 
 // --- Listeners ---
 uploadArea.addEventListener('click', () => fileInput.click());
+document.getElementById('uploadBtnUI')?.addEventListener('click', (e) => {
+  e.stopPropagation(); // prevent double clicking if inside uploadArea
+  fileInput.click();
+});
+
+// Drag and drop support
+uploadArea.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  uploadArea.classList.add('border-emerald-500', 'bg-white/5');
+});
+
+uploadArea.addEventListener('dragleave', (e) => {
+  e.preventDefault();
+  uploadArea.classList.remove('border-emerald-500', 'bg-white/5');
+});
+
+uploadArea.addEventListener('drop', (e) => {
+  e.preventDefault();
+  uploadArea.classList.remove('border-emerald-500', 'bg-white/5');
+  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    const file = e.dataTransfer.files[0];
+    parseFile(file);
+  }
+});
 
 fileInput.addEventListener('change', (e) => {
   const file = e.target.files[0];
@@ -1855,7 +2290,7 @@ document.getElementById('btnGuidedConfirm')?.addEventListener('click', () => {
 
 document.getElementById('btnExitGuided')?.addEventListener('click', stopGuidedWorkflow);
 
-btnBulkSend?.addEventListener('click', startGuidedWorkflow);
+document.getElementById('btnBulkSend')?.addEventListener('click', startGuidedWorkflow);
 
 // --- Export Functionality ---
 function exportToCSV(ordersToExport, filename) {
@@ -1923,7 +2358,8 @@ btnConfirmDelete?.addEventListener('click', async () => {
     await supabase.from('uploads').delete().eq('user_id', currentUser.id);
   }
 
-  currentFilter = 'all';
+  currentDeliveryFilter = 'all';
+  currentRiskFilter = 'all';
   if (document.getElementById('filterSelect')) document.getElementById('filterSelect').value = 'all';
   if (document.getElementById('deliveryFilter')) document.getElementById('deliveryFilter').value = 'all';
   if (document.getElementById('riskFilter')) document.getElementById('riskFilter').value = 'all';
@@ -1933,6 +2369,24 @@ btnConfirmDelete?.addEventListener('click', async () => {
   vibrate([40, 50, 40]);
   showToast('All data deleted', 'check-circle-2');
   switchView('view-home');
+});
+
+// --- Dashboard Filter Listeners ---
+document.getElementById('smartSearchInput')?.addEventListener('input', () => renderOrders());
+document.getElementById('filterSelect')?.addEventListener('change', () => renderOrders());
+document.getElementById('deliveryFilter')?.addEventListener('change', () => renderOrders());
+document.getElementById('riskFilter')?.addEventListener('change', () => renderOrders());
+document.getElementById('exportSelect')?.addEventListener('change', (e) => {
+  const type = e.target.value;
+  if (!type) return;
+  
+  let toExport = [];
+  if (type === 'all') toExport = orders.filter(o => o.uploadId === activeUploadId);
+  else if (type === 'pending') toExport = orders.filter(o => o.uploadId === activeUploadId && o.status === 'Pending');
+  else if (type === 'confirmed') toExport = orders.filter(o => o.uploadId === activeUploadId && o.status === 'Confirmed');
+  
+  exportToCSV(toExport, `orderping_export_${type}.csv`);
+  e.target.value = ''; // reset
 });
 
 // --- Smart Auto-Hide Header on Scroll ---
@@ -1986,3 +2440,25 @@ window.addEventListener('scroll', () => {
     isScrolling = true;
   }
 }, { passive: true });
+
+// --- Risk Engine Listeners ---
+btnRefreshRisk?.addEventListener('click', () => {
+  vibrate(50);
+  showToast('Re-analyzing customer intelligence...', 'loader-2');
+  setTimeout(() => {
+    runRiskAnalysis();
+    showToast('Risk analysis complete', 'shield-check');
+  }, 1000);
+});
+
+// Run initial risk analysis on start
+setTimeout(() => {
+  runRiskAnalysis();
+}, 2000);
+
+// Close mapping and preview modals
+[btnCancelMapping, btnCloseMapping].forEach(btn => {
+  btn?.addEventListener('click', () => {
+    columnMappingModal.classList.add('hidden');
+  });
+});

@@ -1,6 +1,6 @@
 {
   "name": "OrderPing",
-  "description": "Premium mobile-first web app for small ecommerce sellers to confirm COD orders on WhatsApp.",
+  "description": "Professional COD intelligence platform for Indian sellers featuring AI risk scoring, smart CSV mapping, and bulk WhatsApp workflows.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

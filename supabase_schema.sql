@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS public.orders (
   amount TEXT,
   status TEXT DEFAULT 'pending', -- pending, confirmed, canceled, invalid
   risk_level TEXT DEFAULT 'low', -- low, medium, high
+  repeat_customer BOOLEAN DEFAULT FALSE,
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

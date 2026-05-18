@@ -35,6 +35,12 @@
           <a href="#view-orders" class="dropdown-item" data-target="view-orders">
              <i data-lucide="list"></i> Orders
           </a>
+          <a href="#view-analytics" class="dropdown-item" data-target="view-analytics">
+             <i data-lucide="bar-chart-3"></i> Analytics
+          </a>
+          <a href="#view-risk" class="dropdown-item" data-target="view-risk">
+             <i data-lucide="shield-alert"></i> Risk Engine
+          </a>
           <a href="#view-templates" class="dropdown-item" data-target="view-templates">
              <i data-lucide="layout"></i> Templates
           </a>
@@ -112,8 +118,13 @@
         <section id="view-home" class="view hidden">
           <!-- Premium Hero / Upload Area -->
           <div class="hero-upload" id="uploadArea">
-            <input type="file" id="fileInput" accept=".csv, .xlsx, .xls, .pdf" hidden />
+            <input type="file" id="fileInput" accept=".csv, .xlsx, .xls, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" hidden />
             
+            <div id="uploadOverlay" class="absolute inset-0 bg-[#0b0f19]/80 backdrop-blur-sm z-50 hidden flex-col items-center justify-center">
+              <i data-lucide="loader-2" class="w-8 h-8 text-emerald-400 animate-spin mb-2"></i>
+              <p id="uploadStatusText" class="text-sm font-semibold text-emerald-400 tracking-wider uppercase text-center">Parsing Data...</p>
+            </div>
+
             <div class="hero-illustration" id="heroIllustration">
                <div class="workflow-visual">
                  <div class="workflow-node excel-node">
@@ -152,9 +163,14 @@
                 <h2 class="hero-title" id="heroTitle">Automate your order flow</h2>
                 <p class="hero-subtitle" id="heroSubtitle">Upload Excel, CSV, or PDF</p>
               </div>
-              <button class="action-pill primary-pill upload-btn-ui" id="uploadBtnUI" type="button">
-                <i data-lucide="plus"></i> <span id="uploadBtnText">New File</span>
-              </button>
+              <div class="flex items-center gap-2">
+                <button class="action-pill glass-pill text-xs px-3 h-9" onclick="loadDemoOrders()" type="button" aria-label="Load Demo Orders">
+                  <i data-lucide="database" class="w-3.5 h-3.5"></i> <span class="hidden sm:inline">Load Demo Orders</span>
+                </button>
+                <button class="action-pill primary-pill upload-btn-ui h-9" id="uploadBtnUI" type="button">
+                  <i data-lucide="plus"></i> <span id="uploadBtnText">New File</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -317,6 +333,182 @@
               <button class="de-action-btn" onclick="switchView('view-home')">
                 Go to Home
               </button>
+            </div>
+          </div>
+        </section>
+        
+        <!-- ANALYTICS VIEW -->
+        <section id="view-analytics" class="view hidden">
+          <div class="header-with-action mb-6">
+            <div>
+              <h2 class="text-2xl font-bold">Analytics & Insights</h2>
+              <p class="text-sm text-slate-400">Deep dive into your COD performance</p>
+            </div>
+            <div class="flex gap-2">
+               <button id="btnExportStats" class="action-pill glass-pill"><i data-lucide="download"></i></button>
+            </div>
+          </div>
+
+          <!-- Main Stats Cards -->
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div class="mini-stat-card border-emerald-500/20 bg-emerald-500/5">
+              <span class="stat-label">Success Rate</span>
+              <span class="stat-value text-emerald-400" id="statAvgSuccess">0%</span>
+            </div>
+            <div class="mini-stat-card border-red-500/20 bg-red-500/5">
+              <span class="stat-label">RTO Rate</span>
+              <span class="stat-value text-red-400" id="statAvgRTO">0%</span>
+            </div>
+            <div class="mini-stat-card">
+              <span class="stat-label">Total Revenue</span>
+              <span class="stat-value" id="statTotalRevenue">₹0</span>
+            </div>
+            <div class="mini-stat-card border-blue-500/20 bg-blue-500/5">
+              <span class="stat-label">Delivered Orders</span>
+              <span class="stat-value text-blue-400" id="statDeliveredCount">0</span>
+            </div>
+          </div>
+
+          <div class="grid lg:grid-cols-2 gap-6">
+            <!-- Geographical split -->
+            <div class="card glass-card">
+              <h3 class="font-bold mb-4">City Performance</h3>
+              <div class="space-y-4" id="cityStatsList">
+                <div class="empty-state py-8">No geographical data available.</div>
+              </div>
+            </div>
+
+            <!-- Risk Distribution -->
+            <div class="card glass-card">
+              <h3 class="font-bold mb-4">Risk Distribution</h3>
+              <div class="flex items-center justify-center py-8">
+                <div class="relative w-48 h-48">
+                  <svg viewBox="0 0 36 36" class="w-full h-full transform -rotate-90">
+                    <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="rgba(255,255,255,0.05)" stroke-width="3"></circle>
+                    <circle id="riskCircleHigh" cx="18" cy="18" r="15.915" fill="transparent" stroke="#ef4444" stroke-width="3" stroke-dasharray="0 100" stroke-dashoffset="0"></circle>
+                    <circle id="riskCircleMedium" cx="18" cy="18" r="15.915" fill="transparent" stroke="#fbbf24" stroke-width="3" stroke-dasharray="0 100" stroke-dashoffset="0"></circle>
+                    <circle id="riskCircleLow" cx="18" cy="18" r="15.915" fill="transparent" stroke="#10b981" stroke-width="3" stroke-dasharray="0 100" stroke-dashoffset="0"></circle>
+                  </svg>
+                  <div class="absolute inset-0 flex flex-col items-center justify-center">
+                    <span class="text-xs text-slate-400">Total Analyzed</span>
+                    <span class="text-xl font-bold" id="riskTotalCountCenter">0</span>
+                  </div>
+                </div>
+              </div>
+              <div class="flex justify-around gap-2 px-2 mt-4">
+                <div class="flex flex-col items-center">
+                  <div class="w-2 h-2 rounded-full bg-emerald-500 mb-1"></div>
+                  <span class="text-[10px] text-slate-400">Low</span>
+                </div>
+                <div class="flex flex-col items-center">
+                  <div class="w-2 h-2 rounded-full bg-amber-500 mb-1"></div>
+                  <span class="text-[10px] text-slate-400">Med</span>
+                </div>
+                <div class="flex flex-col items-center">
+                  <div class="w-2 h-2 rounded-full bg-red-500 mb-1"></div>
+                  <span class="text-[10px] text-slate-400">High</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- RISK ENGINE VIEW -->
+        <section id="view-risk" class="view hidden">
+          <div class="header-with-action mb-6">
+            <div>
+              <h2 class="text-2xl font-bold">COD Risk Engine</h2>
+              <p class="text-sm text-slate-400">Automated buyer analysis & fraud detection</p>
+            </div>
+            <button id="btnRefreshRisk" class="action-pill primary-pill">
+              <i data-lucide="refresh-cw"></i> <span>Re-analyze</span>
+            </button>
+          </div>
+
+          <!-- Risk Summary Stats -->
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div class="mini-stat-card border-red-500/20 bg-red-500/5">
+              <span class="stat-label">High Risk Buyers</span>
+              <span class="stat-value text-red-500" id="riskStatHigh">0</span>
+            </div>
+            <div class="mini-stat-card border-amber-500/20 bg-amber-500/5">
+              <span class="stat-label">Medium Risk</span>
+              <span class="stat-value text-amber-500" id="riskStatMedium">0</span>
+            </div>
+            <div class="mini-stat-card">
+              <span class="stat-label">Total Analyzed</span>
+              <span class="stat-value" id="riskStatTotal">0</span>
+            </div>
+            <div class="mini-stat-card border-emerald-500/20 bg-emerald-500/5">
+              <span class="stat-label">Clean Profiles</span>
+              <span class="stat-value text-emerald-500" id="riskStatLow">0</span>
+            </div>
+          </div>
+
+          <div class="grid lg:grid-cols-3 gap-6">
+            <!-- Left Col: High Risk List -->
+            <div class="lg:col-span-2 space-y-6">
+              <div class="card glass-card">
+                <div class="flex items-center justify-between mb-4">
+                  <h3 class="font-bold">🚨 Suspicious Buyer Intelligence</h3>
+                  <div class="text-xs text-slate-400">Past performance data</div>
+                </div>
+                
+                <div class="overflow-x-auto no-scrollbar">
+                  <table class="w-full text-left border-collapse">
+                    <thead>
+                      <tr class="border-b border-white/5">
+                        <th class="py-3 px-2 text-xs font-semibold text-slate-400 uppercase">Phone / Customer</th>
+                        <th class="py-3 px-2 text-xs font-semibold text-slate-400 uppercase">Level</th>
+                        <th class="py-3 px-2 text-xs font-semibold text-slate-400 uppercase text-center">RTO %</th>
+                        <th class="py-3 px-2 text-xs font-semibold text-slate-400 uppercase">Dominant Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody id="riskIntelligenceBody" class="divide-y divide-white/5">
+                      <!-- Injected by JS -->
+                    </tbody>
+                  </table>
+                </div>
+                <div id="riskIntelligenceEmpty" class="py-12 text-center text-slate-500 hidden">
+                  <i data-lucide="shield-check" class="mx-auto mb-2 opacity-20 w-12 h-12"></i>
+                  <p>No high-risk activity detected yet.</p>
+                </div>
+              </div>
+
+              <!-- Risk Health -->
+              <div class="card glass-card bg-emerald-500/5 border-emerald-500/20">
+                 <h3 class="font-bold mb-4 flex items-center gap-2">
+                   <i data-lucide="trending-up" class="text-emerald-400"></i> Overall Portfolio Health
+                 </h3>
+                 <div class="flex items-end gap-2 mb-1">
+                   <span class="text-3xl font-bold" id="deliveryHealthRate">0%</span>
+                   <span class="text-xs text-slate-400 mb-1">Successful Delivery Rate</span>
+                 </div>
+                 <div class="w-full bg-white/5 h-2 rounded-full overflow-hidden mb-4">
+                   <div id="deliveryHealthFill" class="h-full bg-emerald-500 transition-all duration-1000" style="width: 0%"></div>
+                 </div>
+                 <p class="text-xs text-slate-400">Your average RTO (Return to Origin) is calculated based on confirmed returns vs delivered orders.</p>
+              </div>
+            </div>
+
+            <!-- Right Col: Insights -->
+            <div class="space-y-6">
+              <div class="card glass-card">
+                <div class="flex items-center justify-between mb-4">
+                  <h3 class="font-bold">Top RTO Targets</h3>
+                  <i data-lucide="info" class="w-4 h-4 text-slate-500"></i>
+                </div>
+                <div id="topSuspiciousList" class="space-y-4">
+                  <!-- Injected by JS -->
+                </div>
+              </div>
+
+              <div class="card glass-card bg-red-500/5 border-red-500/20">
+                <h3 class="font-bold mb-2 flex items-center gap-2">
+                  <i data-lucide="alert-octagon" class="text-red-400"></i> Smart Alert
+                </h3>
+                <p class="text-xs text-slate-400">The engine has identified <span id="alertCount" class="text-red-400 font-bold">0</span> repeated offenders. We suggest pre-paid payment links for these specific orders.</p>
+              </div>
             </div>
           </div>
         </section>
@@ -562,6 +754,29 @@
               <button type="submit" class="btn primary-btn flex-1">Save Order</button>
             </div>
           </form>
+        </div>
+      </div>
+
+      <!-- SMART COLUMN MAPPING MODAL -->
+      <div id="columnMappingModal" class="modal-overlay hidden">
+        <div class="modal-card max-w-2xl w-[95vw]">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-xl font-bold">Map CSV Columns</h3>
+            <button id="btnCloseMapping" class="text-slate-400 hover:text-white">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          
+          <p class="text-sm text-slate-400 mb-6">We've attempted to auto-detect your columns. Please verify the mappings below.</p>
+          
+          <div class="space-y-4 mb-8" id="mappingFieldsContainer">
+            <!-- Mapping rows: Order Field -> CSV Column Select -->
+          </div>
+
+          <div class="flex gap-3 justify-end">
+            <button id="btnCancelMapping" class="btn secondary-btn px-6">Cancel</button>
+            <button id="btnProceedToPreview" class="btn primary-btn px-8">Next: Preview Data</button>
+          </div>
         </div>
       </div>
 
